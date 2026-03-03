@@ -1,19 +1,126 @@
 import { json } from "@remix-run/node";
-import { useLoaderData } from "@remix-run/react";
-import { Page, Layout, Card, IndexTable, Text, Badge, Link, InlineStack } from "@shopify/polaris";
+import { useLoaderData, useSubmit, useNavigation, useSearchParams } from "@remix-run/react";
+import { Page, Layout, Card, IndexTable, Text, Badge, Link, InlineStack, IndexFilters, useSetIndexFiltersMode, useIndexResourceState, ChoiceList } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 export const loader = async ({ request }) => {
     await authenticate.admin(request);
+    const url = new URL(request.url);
+    const q = url.searchParams.get("q") || "";
+    const dispatchStatusParam = url.searchParams.get("dispatchStatus") || "";
+
+    const AND = [];
+    if (q) {
+        AND.push({
+            OR: [
+                { orderName: { contains: q } },
+                { carrierName: { contains: q } },
+                { awbNumber: { contains: q } }
+            ]
+        });
+    }
+
+    if (dispatchStatusParam) {
+        const statuses = dispatchStatusParam.split(",");
+        AND.push({ dispatchStatus: { in: statuses } });
+    }
+
+    const where = AND.length > 0 ? { AND } : undefined;
+
     const parcels = await prisma.parcel.findMany({
+        where,
         orderBy: { createdAt: "desc" },
     });
+    return json({ parcels, q, dispatchStatusParam });
     return json({ parcels });
 };
 
 export default function ParcelsMaster() {
-    const { parcels } = useLoaderData();
+    const { parcels, q, dispatchStatusParam } = useLoaderData();
+    const submit = useSubmit();
+    const navigation = useNavigation();
+
+    const isLoading = navigation.state === "loading";
+
+    const { mode, setMode } = useSetIndexFiltersMode();
+    const [queryValue, setQueryValue] = useState(q);
+    const [dispatchStatusValue, setDispatchStatusValue] = useState(dispatchStatusParam ? dispatchStatusParam.split(",") : []);
+    const timeoutId = useRef(null);
+
+    useEffect(() => {
+        setQueryValue(q);
+        setDispatchStatusValue(dispatchStatusParam ? dispatchStatusParam.split(",") : []);
+    }, [q, dispatchStatusParam]);
+
+    const handleFiltersQueryChange = useCallback(
+        (value) => {
+            setQueryValue(value);
+            if (timeoutId.current) clearTimeout(timeoutId.current);
+            timeoutId.current = setTimeout(() => {
+                const formData = new FormData();
+                if (value) formData.append("q", value);
+                if (dispatchStatusValue.length) formData.append("dispatchStatus", dispatchStatusValue.join(","));
+                submit(formData, { method: "get" });
+            }, 500);
+        },
+        [dispatchStatusValue, submit]
+    );
+
+    const handleDispatchStatusChange = useCallback((value) => {
+        setDispatchStatusValue(value);
+        const formData = new FormData();
+        if (queryValue) formData.append("q", queryValue);
+        if (value.length) formData.append("dispatchStatus", value.join(","));
+        submit(formData, { method: "get" });
+    }, [queryValue, submit]);
+
+    const handleFiltersClearAll = useCallback(() => {
+        setQueryValue("");
+        setDispatchStatusValue([]);
+        submit({}, { method: "get" });
+    }, [submit]);
+
+    const filters = [
+        {
+            key: "dispatchStatus",
+            label: "Dispatch Status",
+            filter: (
+                <ChoiceList
+                    title="Dispatch Status"
+                    titleHidden
+                    choices={[
+                        { label: "Pending", value: "pending" },
+                        { label: "Dispatched", value: "dispatched" },
+                        { label: "Delivered", value: "delivered" },
+                        { label: "Cancelled", value: "cancelled" },
+                    ]}
+                    selected={dispatchStatusValue}
+                    onChange={handleDispatchStatusChange}
+                    allowMultiple
+                />
+            ),
+            shortcut: true,
+        }
+    ];
+
+    const appliedFilters = [];
+    if (dispatchStatusValue.length > 0) {
+        appliedFilters.push({
+            key: "dispatchStatus",
+            label: `Status: ${dispatchStatusValue.join(", ")}`,
+            onRemove: () => {
+                setDispatchStatusValue([]);
+                const formData = new FormData();
+                if (queryValue) formData.append("q", queryValue);
+                submit(formData, { method: "get" });
+            },
+        });
+    }
+
+    const resourceName = { singular: "parcel", plural: "parcels" };
+    const { selectedResources, allResourcesSelected, handleSelectionChange } = useIndexResourceState(parcels);
 
     const getStatusBadge = (status) => {
         switch (status.toLowerCase()) {
@@ -76,9 +183,41 @@ export default function ParcelsMaster() {
             <Layout>
                 <Layout.Section>
                     <Card padding="0">
+                        <IndexFilters
+                            sortOptions={[]}
+                            sortSelected={[]}
+                            onSort={() => { }}
+                            queryValue={queryValue}
+                            queryPlaceholder="Search by order name, carrier, or AWB"
+                            onQueryChange={handleFiltersQueryChange}
+                            onQueryClear={() => {
+                                setQueryValue("");
+                                const formData = new FormData();
+                                if (dispatchStatusValue.length) formData.append("dispatchStatus", dispatchStatusValue.join(","));
+                                submit(formData, { method: "get" });
+                            }}
+                            cancelAction={{
+                                onAction: () => { },
+                                disabled: false,
+                                loading: false,
+                            }}
+                            tabs={[{ content: 'All', id: 'all' }]}
+                            selected={0}
+                            onSelect={() => { }}
+                            canCreateNewView={false}
+                            filters={filters}
+                            appliedFilters={appliedFilters}
+                            onClearAll={handleFiltersClearAll}
+                            mode={mode}
+                            setMode={setMode}
+                        />
                         <IndexTable
-                            resourceName={{ singular: "parcel", plural: "parcels" }}
+                            resourceName={resourceName}
                             itemCount={parcels.length}
+                            selectedItemsCount={
+                                allResourcesSelected ? "All" : selectedResources.length
+                            }
+                            onSelectionChange={handleSelectionChange}
                             headings={[
                                 { title: "Order ID" },
                                 { title: "Carrier" },
@@ -88,6 +227,7 @@ export default function ParcelsMaster() {
                                 { title: "Created At" },
                             ]}
                             selectable={false}
+                            loading={isLoading}
                         >
                             {rowMarkup}
                         </IndexTable>

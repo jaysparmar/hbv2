@@ -1,16 +1,24 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit, useActionData, useNavigation } from "@remix-run/react";
-import { Page, Layout, Card, IndexTable, Text, Button, Modal, TextField, BlockStack, InlineStack, RangeSlider } from "@shopify/polaris";
+import { useLoaderData, useSubmit, useActionData, useNavigation, useSearchParams } from "@remix-run/react";
+import { Page, Layout, Card, IndexTable, Text, Button, Modal, TextField, BlockStack, InlineStack, RangeSlider, IndexFilters, useSetIndexFiltersMode, useIndexResourceState } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 
 export const loader = async ({ request }) => {
     await authenticate.admin(request);
+    const url = new URL(request.url);
+    const q = url.searchParams.get("q") || "";
+
+    const where = q ? { name: { contains: q } } : {};
+    // SQLite string operations can be tricky with case-sensitivity, but Prisma's `contains` on SQLite defaults to case-insensitive or sensitive depending on DB collation.
+    // In Prisma schema for SQLite we can't do mode: 'insensitive' typically. Let's just use `contains`.
+
     const packages = await prisma.package.findMany({
+        where: q ? { name: { contains: q } } : undefined,
         orderBy: { updatedAt: "desc" },
     });
-    return json({ packages });
+    return json({ packages, q });
 };
 
 export const action = async ({ request }) => {
@@ -56,9 +64,40 @@ export const action = async ({ request }) => {
 };
 
 export default function PackageMaster() {
-    const { packages } = useLoaderData();
+    const { packages, q } = useLoaderData();
     const submit = useSubmit();
     const navigation = useNavigation();
+
+    const isLoading = navigation.state === "loading";
+
+    const { mode, setMode } = useSetIndexFiltersMode();
+    const [queryValue, setQueryValue] = useState(q);
+    const timeoutId = useRef(null);
+
+    useEffect(() => {
+        setQueryValue(q);
+    }, [q]);
+
+    const handleFiltersQueryChange = useCallback(
+        (value) => {
+            setQueryValue(value);
+            if (timeoutId.current) clearTimeout(timeoutId.current);
+            timeoutId.current = setTimeout(() => {
+                const formData = new FormData();
+                if (value) formData.append("q", value);
+                submit(formData, { method: "get" });
+            }, 500);
+        },
+        [submit]
+    );
+
+    const handleFiltersClearAll = useCallback(() => {
+        setQueryValue("");
+        submit({}, { method: "get" });
+    }, [submit]);
+
+    const resourceName = { singular: "package", plural: "packages" };
+    const { selectedResources, allResourcesSelected, handleSelectionChange } = useIndexResourceState(packages);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingPackage, setEditingPackage] = useState(null);
@@ -147,9 +186,39 @@ export default function PackageMaster() {
             <Layout>
                 <Layout.Section>
                     <Card padding="0">
+                        <IndexFilters
+                            sortOptions={[]}
+                            sortSelected={[]}
+                            onSort={() => { }}
+                            queryValue={queryValue}
+                            queryPlaceholder="Search packages by name"
+                            onQueryChange={handleFiltersQueryChange}
+                            onQueryClear={() => {
+                                setQueryValue("");
+                                submit({}, { method: "get" });
+                            }}
+                            cancelAction={{
+                                onAction: () => { },
+                                disabled: false,
+                                loading: false,
+                            }}
+                            tabs={[{ content: 'All', id: 'all' }]}
+                            selected={0}
+                            onSelect={() => { }}
+                            canCreateNewView={false}
+                            filters={[]}
+                            appliedFilters={[]}
+                            onClearAll={handleFiltersClearAll}
+                            mode={mode}
+                            setMode={setMode}
+                        />
                         <IndexTable
-                            resourceName={{ singular: "package", plural: "packages" }}
+                            resourceName={resourceName}
                             itemCount={packages.length}
+                            selectedItemsCount={
+                                allResourcesSelected ? "All" : selectedResources.length
+                            }
+                            onSelectionChange={handleSelectionChange}
                             headings={[
                                 { title: "Name" },
                                 { title: "Length (cm)" },
@@ -159,6 +228,7 @@ export default function PackageMaster() {
                                 { title: "Actions" },
                             ]}
                             selectable={false}
+                            loading={isLoading}
                         >
                             {rowMarkup}
                         </IndexTable>

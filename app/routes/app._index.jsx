@@ -15,7 +15,7 @@ import {
   Pagination,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 export const loader = async ({ request }) => {
   const { admin } = await authenticate.admin(request);
@@ -104,6 +104,8 @@ export default function Index() {
   const [dateMinValue, setDateMinValue] = useState(dateMin);
   const [dateMaxValue, setDateMaxValue] = useState(dateMax);
 
+  const timeoutId = useRef(null);
+
   useEffect(() => {
     setQueryValue(q);
     setPaymentStatusValue(paymentStatus ? paymentStatus.split(",") : []);
@@ -113,8 +115,20 @@ export default function Index() {
   }, [q, paymentStatus, fulfillmentStatus, dateMin, dateMax]);
 
   const handleFiltersQueryChange = useCallback(
-    (value) => setQueryValue(value),
-    []
+    (value) => {
+      setQueryValue(value);
+      if (timeoutId.current) clearTimeout(timeoutId.current);
+      timeoutId.current = setTimeout(() => {
+        const formData = new FormData();
+        if (value) formData.append("q", value);
+        if (paymentStatusValue.length) formData.append("paymentStatus", paymentStatusValue.join(","));
+        if (fulfillmentStatusValue.length) formData.append("fulfillmentStatus", fulfillmentStatusValue.join(","));
+        if (dateMinValue) formData.append("dateMin", dateMinValue);
+        if (dateMaxValue) formData.append("dateMax", dateMaxValue);
+        submit(formData, { method: "get" });
+      }, 500);
+    },
+    [paymentStatusValue, fulfillmentStatusValue, dateMinValue, dateMaxValue, submit]
   );
 
   const handlePaymentStatusChange = useCallback(
@@ -166,17 +180,6 @@ export default function Index() {
     if (value) formData.append("dateMax", value);
     submit(formData, { method: "get", replace: true });
   }, [queryValue, paymentStatusValue, fulfillmentStatusValue, dateMinValue, submit]);
-
-  const applyFilters = useCallback(() => {
-    const formData = new FormData();
-    if (queryValue) formData.append("q", queryValue);
-    if (paymentStatusValue.length) formData.append("paymentStatus", paymentStatusValue.join(","));
-    if (fulfillmentStatusValue.length) formData.append("fulfillmentStatus", fulfillmentStatusValue.join(","));
-    if (dateMinValue) formData.append("dateMin", dateMinValue);
-    if (dateMaxValue) formData.append("dateMax", dateMaxValue);
-
-    submit(formData, { method: "get" });
-  }, [queryValue, paymentStatusValue, fulfillmentStatusValue, dateMinValue, dateMaxValue, submit]);
 
   const handleFiltersClearAll = useCallback(() => {
     setQueryValue("");
@@ -298,9 +301,7 @@ export default function Index() {
     });
   }
 
-  const handleSearchSubmit = () => {
-    applyFilters();
-  };
+
 
   const resourceName = {
     singular: "order",
@@ -405,7 +406,6 @@ export default function Index() {
                 if (dateMaxValue) formData.append("dateMax", dateMaxValue);
                 submit(formData, { method: "get" });
               }}
-              onQuerySubmit={handleSearchSubmit}
               cancelAction={{
                 onAction: () => { },
                 disabled: false,
