@@ -1,6 +1,10 @@
 import { json } from "@remix-run/node";
 import { useLoaderData, useSubmit, useNavigation, useSearchParams } from "@remix-run/react";
-import { Page, Layout, Card, IndexTable, Text, Badge, Link, InlineStack, IndexFilters, useSetIndexFiltersMode, useIndexResourceState, ChoiceList } from "@shopify/polaris";
+import {
+    Page, Layout, Card, IndexTable, Text, Badge, Link, InlineStack,
+    IndexFilters, useSetIndexFiltersMode, useIndexResourceState, ChoiceList,
+    Button, Modal, BlockStack, Banner
+} from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { useState, useCallback, useRef, useEffect } from "react";
@@ -34,7 +38,60 @@ export const loader = async ({ request }) => {
         orderBy: { createdAt: "desc" },
     });
     return json({ parcels, q, dispatchStatusParam });
-    return json({ parcels });
+};
+
+export const action = async ({ request }) => {
+    const { admin } = await authenticate.admin(request);
+    const formData = await request.formData();
+    const actionType = formData.get("actionType");
+
+    let errors = [];
+
+    if (actionType === "deleteParcel") {
+        const parcelId = parseInt(formData.get("parcelId"), 10);
+        const parcel = await prisma.parcel.findUnique({ where: { id: parcelId } });
+
+        if (!parcel) {
+            errors = [{ message: "Parcel not found." }];
+        } else if (parcel.dispatchmentId !== null) {
+            errors = [{ message: "Cannot delete: this parcel is linked to a dispatch. Remove it from the dispatch first." }];
+        } else {
+            // Cancel the Shopify fulfillment
+            const cancelResponse = await admin.graphql(
+                `#graphql
+        mutation fulfillmentCancel($id: ID!) {
+          fulfillmentCancel(id: $id) {
+            fulfillment {
+              id
+              status
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+                { variables: { id: parcel.fulfillmentId } }
+            );
+            const cancelResult = await cancelResponse.json();
+            const cancelErrors = cancelResult.data?.fulfillmentCancel?.userErrors;
+            if (cancelErrors && cancelErrors.length > 0) {
+                const realErrors = cancelErrors.filter(
+                    (e) => !e.message.toLowerCase().includes("already cancelled") &&
+                        !e.message.toLowerCase().includes("cannot cancel")
+                );
+                if (realErrors.length > 0) {
+                    errors = realErrors;
+                }
+            }
+            if (errors.length === 0) {
+                await prisma.parcel.delete({ where: { id: parcelId } });
+                return json({ errors, deleted: true });
+            }
+        }
+    }
+
+    return json({ errors, deleted: false });
 };
 
 export default function ParcelsMaster() {
@@ -43,16 +100,48 @@ export default function ParcelsMaster() {
     const navigation = useNavigation();
 
     const isLoading = navigation.state === "loading";
+    const isSubmitting = navigation.state === "submitting";
 
     const { mode, setMode } = useSetIndexFiltersMode();
     const [queryValue, setQueryValue] = useState(q);
     const [dispatchStatusValue, setDispatchStatusValue] = useState(dispatchStatusParam ? dispatchStatusParam.split(",") : []);
     const timeoutId = useRef(null);
 
+    // Delete modal state
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [parcelToDelete, setParcelToDelete] = useState(null);
+    const [deleteError, setDeleteError] = useState(null);
+
     useEffect(() => {
         setQueryValue(q);
         setDispatchStatusValue(dispatchStatusParam ? dispatchStatusParam.split(",") : []);
     }, [q, dispatchStatusParam]);
+
+    // Clear error when modal closes / re-opens
+    const openDeleteModal = useCallback((parcel) => {
+        setParcelToDelete(parcel);
+        setDeleteError(null);
+        setDeleteModalOpen(true);
+    }, []);
+
+    const closeDeleteModal = useCallback(() => {
+        setDeleteModalOpen(false);
+        setParcelToDelete(null);
+        setDeleteError(null);
+    }, []);
+
+    const handleDeleteParcel = useCallback(() => {
+        if (!parcelToDelete) return;
+        if (parcelToDelete.dispatchmentId !== null) {
+            setDeleteError("This parcel is linked to a dispatch and cannot be deleted.");
+            return;
+        }
+        submit(
+            { actionType: "deleteParcel", parcelId: parcelToDelete.id.toString() },
+            { method: "post" }
+        );
+        closeDeleteModal();
+    }, [parcelToDelete, submit, closeDeleteModal]);
 
     const handleFiltersQueryChange = useCallback(
         (value) => {
@@ -137,43 +226,42 @@ export default function ParcelsMaster() {
         }
     };
 
-    const rowMarkup = parcels.map((parcel, index) => {
-        // Construct the tracking link
-        let trackingLink = null;
-        if (parcel.carrierId) {
-            // We could hypothetically fetch the tracking link here or build it on the fly if we want,
-            // but the awbNumber is stored. Since we don't have tracking URL directly in the record,
-            // we can just display the awbNumber. We might need to join Carrier table, or we can just 
-            // use awbNumber. The user mentioned they want to quickly see Fulfillments and details.
-        }
-
-        return (
-            <IndexTable.Row id={parcel.id.toString()} key={parcel.id} position={index}>
-                <IndexTable.Cell>
-                    <Link url={`/app/orders/${parcel.orderId.split("/").pop()}`}>
-                        {parcel.orderName || parcel.orderId.split("/").pop()}
-                    </Link>
-                </IndexTable.Cell>
-                <IndexTable.Cell>
-                    <Text as="span">{parcel.carrierName}</Text>
-                </IndexTable.Cell>
-                <IndexTable.Cell>
-                    <Text as="span" fontWeight="bold">{parcel.awbNumber}</Text>
-                </IndexTable.Cell>
-                <IndexTable.Cell>
-                    <Text as="span">{parcel.length}x{parcel.width}x{parcel.height} ({parcel.weight}kg)</Text>
-                </IndexTable.Cell>
-                <IndexTable.Cell>
-                    {getStatusBadge(parcel.dispatchStatus)}
-                </IndexTable.Cell>
-                <IndexTable.Cell>
-                    <Text as="span" tone="subdued">
-                        {new Date(parcel.createdAt).toLocaleDateString()}
-                    </Text>
-                </IndexTable.Cell>
-            </IndexTable.Row>
-        );
-    });
+    const rowMarkup = parcels.map((parcel, index) => (
+        <IndexTable.Row id={parcel.id.toString()} key={parcel.id} position={index}>
+            <IndexTable.Cell>
+                <Link url={`/app/orders/${parcel.orderId.split("/").pop()}`}>
+                    {parcel.orderName || parcel.orderId.split("/").pop()}
+                </Link>
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+                <Text as="span">{parcel.carrierName}</Text>
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+                <Text as="span" fontWeight="bold">{parcel.awbNumber}</Text>
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+                <Text as="span">{parcel.length}x{parcel.width}x{parcel.height} ({parcel.weight}kg)</Text>
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+                {getStatusBadge(parcel.dispatchStatus)}
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+                <Text as="span" tone="subdued">
+                    {new Date(parcel.createdAt).toLocaleDateString()}
+                </Text>
+            </IndexTable.Cell>
+            <IndexTable.Cell>
+                <Button
+                    tone="critical"
+                    size="micro"
+                    onClick={() => openDeleteModal(parcel)}
+                    disabled={isSubmitting}
+                >
+                    Delete
+                </Button>
+            </IndexTable.Cell>
+        </IndexTable.Row>
+    ));
 
     return (
         <Page
@@ -225,6 +313,7 @@ export default function ParcelsMaster() {
                                 { title: "Dimensions (L x W x H) & W" },
                                 { title: "Dispatch Status" },
                                 { title: "Created At" },
+                                { title: "Actions" },
                             ]}
                             selectable={false}
                             loading={isLoading}
@@ -234,6 +323,45 @@ export default function ParcelsMaster() {
                     </Card>
                 </Layout.Section>
             </Layout>
+
+            {/* DELETE PARCEL CONFIRMATION MODAL */}
+            <Modal
+                open={deleteModalOpen}
+                onClose={closeDeleteModal}
+                title="Delete Parcel"
+                primaryAction={{
+                    content: "Delete",
+                    onAction: handleDeleteParcel,
+                    destructive: true,
+                    loading: isSubmitting,
+                    disabled: parcelToDelete?.dispatchmentId !== null && parcelToDelete?.dispatchmentId !== undefined,
+                }}
+                secondaryActions={[{ content: "Cancel", onAction: closeDeleteModal }]}
+            >
+                <Modal.Section>
+                    <BlockStack gap="300">
+                        <Text as="p">Are you sure you want to delete this parcel?</Text>
+                        {parcelToDelete && (
+                            <Text as="p" tone="subdued">
+                                AWB: <strong>{parcelToDelete.awbNumber || "—"}</strong> · Carrier: {parcelToDelete.carrierName}
+                            </Text>
+                        )}
+                        {parcelToDelete?.dispatchmentId && (
+                            <Banner tone="warning">
+                                This parcel is linked to <strong>Dispatch #{parcelToDelete.dispatchmentId}</strong> and cannot be deleted until it is removed from the dispatch.
+                            </Banner>
+                        )}
+                        {parcelToDelete && !parcelToDelete.dispatchmentId && (
+                            <Banner tone="critical">
+                                This will also <strong>cancel</strong> the associated Shopify fulfillment. This action cannot be undone.
+                            </Banner>
+                        )}
+                        {deleteError && (
+                            <Banner tone="critical">{deleteError}</Banner>
+                        )}
+                    </BlockStack>
+                </Modal.Section>
+            </Modal>
         </Page>
     );
 }

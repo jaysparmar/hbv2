@@ -22,6 +22,8 @@ import {
     Modal,
     Select,
     FormLayout,
+    Banner,
+    Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -116,7 +118,12 @@ export const loader = async ({ request, params }) => {
         orderBy: { name: "asc" },
     });
 
-    return json({ order, packages, carriers });
+    const parcels = await prisma.parcel.findMany({
+        where: { orderId },
+        orderBy: { createdAt: "desc" },
+    });
+
+    return json({ order, packages, carriers, parcels });
 };
 
 export const action = async ({ request, params }) => {
@@ -326,19 +333,86 @@ export const action = async ({ request, params }) => {
         if (result.data?.orderMarkAsPaid?.userErrors?.length > 0) {
             errors = result.data.orderMarkAsPaid.userErrors;
         }
+    } else if (actionType === "deleteParcel") {
+        const parcelId = parseInt(formData.get("parcelId"), 10);
+        const parcel = await prisma.parcel.findUnique({ where: { id: parcelId } });
+
+        if (!parcel) {
+            errors = [{ message: "Parcel not found." }];
+        } else if (parcel.dispatchmentId !== null) {
+            errors = [{ message: "Cannot delete: this parcel is linked to a dispatch. Remove it from the dispatch first." }];
+        } else {
+            // Cancel the Shopify fulfillment
+            const cancelResponse = await admin.graphql(
+                `#graphql
+        mutation fulfillmentCancel($id: ID!) {
+          fulfillmentCancel(id: $id) {
+            fulfillment {
+              id
+              status
+            }
+            userErrors {
+              field
+              message
+            }
+          }
+        }`,
+                { variables: { id: parcel.fulfillmentId } }
+            );
+            const cancelResult = await cancelResponse.json();
+            const cancelErrors = cancelResult.data?.fulfillmentCancel?.userErrors;
+            if (cancelErrors && cancelErrors.length > 0) {
+                // Only block on errors that aren't "already cancelled"
+                const realErrors = cancelErrors.filter(
+                    (e) => !e.message.toLowerCase().includes("already cancelled") &&
+                        !e.message.toLowerCase().includes("cannot cancel")
+                );
+                if (realErrors.length > 0) {
+                    errors = realErrors;
+                }
+            }
+            // Delete parcel from DB regardless (fulfillment may already be cancelled)
+            if (errors.length === 0) {
+                await prisma.parcel.delete({ where: { id: parcelId } });
+                return json({ errors, deleted: true });
+            }
+        }
     }
 
-    return json({ errors });
+    return json({ errors, deleted: false });
 };
 
 export default function OrderDetails() {
-    const { order, packages, carriers } = useLoaderData();
+    const { order, packages, carriers, parcels } = useLoaderData();
     const actionData = useActionData();
     const submit = useSubmit();
     const navigation = useNavigation();
 
     const [note, setNote] = useState(order?.note || "");
     const [newTag, setNewTag] = useState("");
+
+    // Delete parcel confirmation modal
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [parcelToDelete, setParcelToDelete] = useState(null);
+
+    const openDeleteModal = useCallback((parcel) => {
+        setParcelToDelete(parcel);
+        setDeleteModalOpen(true);
+    }, []);
+
+    const closeDeleteModal = useCallback(() => {
+        setDeleteModalOpen(false);
+        setParcelToDelete(null);
+    }, []);
+
+    const handleDeleteParcel = useCallback(() => {
+        if (!parcelToDelete) return;
+        submit(
+            { actionType: "deleteParcel", parcelId: parcelToDelete.id.toString() },
+            { method: "post" }
+        );
+        closeDeleteModal();
+    }, [parcelToDelete, submit, closeDeleteModal]);
 
     // Wizard State
     const [isWizardOpen, setIsWizardOpen] = useState(false);
@@ -606,6 +680,49 @@ export default function OrderDetails() {
                             </BlockStack>
                         </Card>
 
+                        {/* Parcels (from DB) */}
+                        {parcels && parcels.length > 0 && (
+                            <Card>
+                                <BlockStack gap="400">
+                                    <Text variant="headingMd" as="h2">
+                                        Parcels
+                                    </Text>
+                                    {parcels.map((parcel, idx) => (
+                                        <Box key={parcel.id}>
+                                            {idx > 0 && <Box paddingBlockEnd="200"><Divider /></Box>}
+                                            <BlockStack gap="200">
+                                                <InlineStack align="space-between" blockAlign="center">
+                                                    <BlockStack gap="100">
+                                                        <InlineStack gap="200" align="start">
+                                                            <Text as="span" fontWeight="bold">{parcel.carrierName}</Text>
+                                                            <Badge tone={parcel.dispatchStatus === "dispatched" ? "info" : parcel.dispatchStatus === "delivered" ? "success" : parcel.dispatchStatus === "cancelled" ? "critical" : "warning"}>
+                                                                {parcel.dispatchStatus}
+                                                            </Badge>
+                                                        </InlineStack>
+                                                        <Text as="span" tone="subdued">AWB: {parcel.awbNumber || "—"}</Text>
+                                                        <Text as="span" tone="subdued">
+                                                            {parcel.length}x{parcel.width}x{parcel.height} cm · {parcel.weight} kg
+                                                        </Text>
+                                                        {parcel.dispatchmentId && (
+                                                            <Text as="span" tone="caution">Linked to Dispatch #{parcel.dispatchmentId}</Text>
+                                                        )}
+                                                    </BlockStack>
+                                                    <Button
+                                                        tone="critical"
+                                                        size="micro"
+                                                        onClick={() => openDeleteModal(parcel)}
+                                                        disabled={isSubmitting}
+                                                    >
+                                                        Delete
+                                                    </Button>
+                                                </InlineStack>
+                                            </BlockStack>
+                                        </Box>
+                                    ))}
+                                </BlockStack>
+                            </Card>
+                        )}
+
                         {/* Fulfillments */}
                         {order.fulfillmentOrders && order.fulfillmentOrders.edges.length > 0 && (
                             <Card>
@@ -753,6 +870,43 @@ export default function OrderDetails() {
                     </BlockStack>
                 </Layout.Section>
             </Layout>
+
+            {/* DELETE PARCEL CONFIRMATION MODAL */}
+            <Modal
+                open={deleteModalOpen}
+                onClose={closeDeleteModal}
+                title="Delete Parcel"
+                primaryAction={{
+                    content: "Delete",
+                    onAction: handleDeleteParcel,
+                    destructive: true,
+                    loading: isSubmitting,
+                }}
+                secondaryActions={[{ content: "Cancel", onAction: closeDeleteModal }]}
+            >
+                <Modal.Section>
+                    <BlockStack gap="200">
+                        <Text as="p">
+                            Are you sure you want to delete this parcel?
+                        </Text>
+                        {parcelToDelete && (
+                            <Text as="p" tone="subdued">
+                                AWB: <strong>{parcelToDelete.awbNumber || "—"}</strong> · Carrier: {parcelToDelete.carrierName}
+                            </Text>
+                        )}
+                        {parcelToDelete?.dispatchmentId && (
+                            <Banner tone="warning">
+                                This parcel is linked to Dispatch #{parcelToDelete.dispatchmentId} and <strong>cannot be deleted</strong> until it is removed from the dispatch.
+                            </Banner>
+                        )}
+                        {!parcelToDelete?.dispatchmentId && (
+                            <Banner tone="critical">
+                                This will also <strong>cancel</strong> the associated Shopify fulfillment. This action cannot be undone.
+                            </Banner>
+                        )}
+                    </BlockStack>
+                </Modal.Section>
+            </Modal>
 
             {/* FULFILLMENT WIZARD MODAL */}
             <Modal
