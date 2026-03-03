@@ -45,18 +45,19 @@ model Package {
 }
 
 model Carrier {
-  id          Int      @id @default(autoincrement())
-  name        String
-  trackingUrl String
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            Int            @id @default(autoincrement())
+  name          String
+  trackingUrl   String
+  isActive      Boolean        @default(true)
+  dispatchments Dispatchment[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model Parcel {
-  id             Int      @id @default(autoincrement())
+  id             Int           @id @default(autoincrement())
   orderId        String
-  orderName      String   @default("")
+  orderName      String        @default("")
   fulfillmentId  String
   carrierId      Int?
   carrierName    String
@@ -65,7 +66,20 @@ model Parcel {
   width          Float
   height         Float
   weight         Float
-  dispatchStatus String   @default("pending")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  dispatchStatus String        @default("pending")
+  dispatchmentId Int?
+  dispatchment   Dispatchment? @relation(fields: [dispatchmentId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Dispatchment {
+  id            Int      @id @default(autoincrement())
+  carrierId     Int
+  carrier       Carrier  @relation(fields: [carrierId], references: [id])
+  transitStatus String   @default("pending")
+  notes         String?
+  parcels       Parcel[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
