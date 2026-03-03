@@ -126,6 +126,15 @@ export default function Dispatches() {
     const [awbInput, setAwbInput] = useState("");
     const [scannedParcels, setScannedParcels] = useState([]);
     const [scanError, setScanError] = useState("");
+    const [scanSuccess, setScanSuccess] = useState("");
+    const inputRef = useRef(null);
+
+    // Auto-focus input when modal opens to Step 2
+    useEffect(() => {
+        if (isWizardOpen && wizardStep === 2 && inputRef.current) {
+            setTimeout(() => inputRef.current?.focus(), 100);
+        }
+    }, [isWizardOpen, wizardStep]);
 
     // Step 3 State
     const [notes, setNotes] = useState("");
@@ -140,6 +149,7 @@ export default function Dispatches() {
         setAwbInput("");
         setScannedParcels([]);
         setScanError("");
+        setScanSuccess("");
         setNotes("");
         setIsWizardOpen(false);
     }, []);
@@ -178,37 +188,46 @@ export default function Dispatches() {
 
                 if (String(parcel.carrierId) !== String(selectedCarrier)) {
                     setScanError(`Parcel belongs to a different carrier (${parcel.carrierName}). Cannot add.`);
-                } else if (scannedParcels.find(p => p.id === parcel.id)) {
-                    setScanError(`Parcel "${parcel.awbNumber}" is already scanned.`);
                 } else if (parcel.dispatchStatus !== "pending") {
                     setScanError(`Parcel "${parcel.awbNumber}" is already dispatched.`);
                 } else if (parcel.dispatchmentId) {
                     setScanError(`Parcel "${parcel.awbNumber}" is already in another dispatchment.`);
                 } else {
                     setScannedParcels(prev => [...prev, parcel]);
-                    setScanError("");
+                    setScanSuccess(`Added: ${parcel.awbNumber} (Order ${parcel.orderName})`);
+                    setTimeout(() => setScanSuccess(""), 2000);
                 }
             }
             setAwbInput("");
+            setTimeout(() => inputRef.current?.focus(), 50);
         }
-    }, [fetcher.state, fetcher.data, selectedCarrier, scannedParcels]);
+    }, [fetcher.state, fetcher.data, selectedCarrier]);
 
-    const handleAwbKeyDown = (e) => {
-        if (e.key === "Enter" || e.key === "Tab") {
+    const handleAwbSubmit = (e) => {
+        if (e) {
             e.preventDefault();
-            // Fallback to e.target.value for faster retrieval right after a paste event
-            const rawVal = e.target.value !== undefined ? e.target.value : awbInput;
-            const val = String(rawVal).trim();
-
-            if (!val) return;
-
-            // Make API call to fetch parcel directly from DB
-            const formData = new FormData();
-            formData.append("intent", "fetch_parcel");
-            formData.append("awbNumber", val);
-
-            fetcher.submit(formData, { method: "post" });
+            e.stopPropagation();
         }
+
+        const awb = awbInput.trim();
+        if (!awb) return;
+
+        setScanError("");
+        setScanSuccess("");
+
+        // 1. Local validation FIRST (like the Next.js pattern)
+        if (scannedParcels.some(p => p.awbNumber.toLowerCase() === awb.toLowerCase())) {
+            setScanError(`This parcel (${awb}) has already been scanned.`);
+            setAwbInput("");
+            setTimeout(() => inputRef.current?.focus(), 50);
+            return;
+        }
+
+        // 2. Fetch via fetcher
+        const formData = new FormData();
+        formData.append("intent", "fetch_parcel");
+        formData.append("awbNumber", awb);
+        fetcher.submit(formData, { method: "post" });
     };
 
     const removeScannedParcel = (id) => {
@@ -314,28 +333,37 @@ export default function Dispatches() {
                     {wizardStep === 2 && (
                         <BlockStack gap="400">
                             {scanError && <Banner tone="critical">{scanError}</Banner>}
-                            <TextField
-                                label="Scan AWB Number"
-                                value={awbInput}
-                                onChange={setAwbInput}
-                                onKeyDown={handleAwbKeyDown}
-                                placeholder="Scan or type AWB and press Enter/Tab"
-                                autoComplete="off"
-                                connectedRight={
-                                    <Button
-                                        onClick={() => {
-                                            if (!awbInput.trim()) return;
-                                            const formData = new FormData();
-                                            formData.append("intent", "fetch_parcel");
-                                            formData.append("awbNumber", awbInput.trim());
-                                            fetcher.submit(formData, { method: "post" });
-                                        }}
-                                        disabled={!awbInput.trim() || fetcher.state !== "idle"}
-                                    >
-                                        + Add
-                                    </Button>
-                                }
-                            />
+                            {scanSuccess && <Banner tone="success">{scanSuccess}</Banner>}
+                            <form onSubmit={handleAwbSubmit}>
+                                <TextField
+                                    ref={inputRef}
+                                    label="Scan or Enter AWB Number"
+                                    value={awbInput}
+                                    onChange={setAwbInput}
+                                    onClearButtonClick={() => {
+                                        setAwbInput("");
+                                        setScanError("");
+                                        setScanSuccess("");
+                                        setTimeout(() => inputRef.current?.focus(), 50);
+                                    }}
+                                    clearButton
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === "Tab") {
+                                            handleAwbSubmit(e);
+                                        }
+                                    }}
+                                    placeholder="Scan barcode or type AWB..."
+                                    autoComplete="off"
+                                    connectedRight={
+                                        <Button
+                                            onClick={() => handleAwbSubmit()}
+                                            disabled={!awbInput.trim() || fetcher.state !== "idle"}
+                                        >
+                                            + Add
+                                        </Button>
+                                    }
+                                />
+                            </form>
                             <Text variant="headingMd" as="h3">Scanned Parcels ({scannedParcels.length})</Text>
                             {scannedParcels.length > 0 ? (
                                 <List>
