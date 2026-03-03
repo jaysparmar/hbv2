@@ -83,3 +83,11 @@ model Dispatchment {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
