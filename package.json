@@ -17,7 +17,8 @@
     "shopify": "shopify",
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
-    "vite": "vite"
+    "vite": "vite",
+    "host": "ngrok http --url=mongrel-many-tick.ngrok-free.app 59619"
   },
   "type": "module",
   "engines": {
