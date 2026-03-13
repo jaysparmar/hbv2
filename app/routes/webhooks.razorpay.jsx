@@ -75,149 +75,117 @@ export const action = async ({ request }) => {
     const { admin } = await unauthenticated.admin(shop);
 
     try {
-      // Step 1: Query Draft Order details
-      const draftQuery = await admin.graphql(`
-        query getDraftOrder($id: ID!) {
-          draftOrder(id: $id) {
-            name email phone tags
-            customAttributes { key value }
-            customer { id }
-            billingAddress {
-              firstName lastName address1 address2 city provinceCode countryCodeV2 zip phone company
-            }
-            shippingAddress {
-              firstName lastName address1 address2 city provinceCode countryCodeV2 zip phone company
-            }
-            shippingLine {
-              title price
-            }
-            lineItems(first: 50) {
-              edges {
-                node {
-                  variant { id }
-                  quantity originalUnitPrice title requiresShipping sku taxable
-                }
+      // Step 1: Complete Draft Order as PENDING/UNPAID (correct for deposit flow)
+      const completeResp = await admin.graphql(
+        `#graphql
+        mutation draftOrderComplete($id: ID!, $paymentPending: Boolean!) {
+          draftOrderComplete(id: $id, paymentPending: $paymentPending) {
+            draftOrder {
+              order {
+                id
+                name
+                displayFinancialStatus
               }
             }
+            userErrors { field message }
           }
+        }`,
+        {
+          variables: {
+            id: draftOrderGid,
+            paymentPending: true,
+          },
         }
-      `, { variables: { id: draftOrderGid } });
+      );
 
-      const draftJson = await draftQuery.json();
-      const draftData = draftJson.data?.draftOrder;
+      const completeData = await completeResp.json();
 
-      if (!draftData) {
-        console.error("[razorpay-webhook] Draft order not found.");
+      if (completeData.data?.draftOrderComplete?.userErrors?.length > 0) {
+        console.error(
+          "[razorpay-webhook] Failed to complete draft order:",
+          JSON.stringify(completeData.data.draftOrderComplete.userErrors)
+        );
         return new Response("OK", { status: 200 });
       }
 
-      const mapAddress = (addr) => addr ? {
-        first_name: addr.firstName, last_name: addr.lastName,
-        address1: addr.address1, address2: addr.address2,
-        city: addr.city, province_code: addr.provinceCode,
-        country_code: addr.countryCodeV2, zip: addr.zip,
-        phone: addr.phone, company: addr.company
-      } : undefined;
+      const newOrder =
+        completeData.data?.draftOrderComplete?.draftOrder?.order;
 
-      const orderPayload = {
-        order: {
-          email: draftData.email,
-          phone: draftData.phone,
-          tags: draftData.tags ? draftData.tags.join(',') : "",
-          note_attributes: draftData.customAttributes?.map(attr => ({ name: attr.key, value: attr.value })),
-          financial_status: "pending",
-          customer: draftData.customer ? { id: parseInt(draftData.customer.id.split('/').pop(), 10) } : undefined,
-          billing_address: mapAddress(draftData.billingAddress),
-          shipping_address: mapAddress(draftData.shippingAddress),
-          line_items: draftData.lineItems?.edges?.map(e => ({
-            variant_id: e.node.variant?.id ? parseInt(e.node.variant.id.split('/').pop(), 10) : undefined,
-            quantity: e.node.quantity,
-            price: e.node.originalUnitPrice,
-            title: e.node.title,
-            requires_shipping: e.node.requiresShipping,
-            sku: e.node.sku,
-            taxable: e.node.taxable
-          }))
-        }
-      };
-
-      if (draftData.shippingLine) {
-        orderPayload.order.shipping_lines = [{
-          title: draftData.shippingLine.title,
-          price: draftData.shippingLine.price,
-        }];
-      }
-
-      // Step 2: Create unpaid order via REST
-      const createOrderResp = await fetch(`https://${shop}/admin/api/2025-01/orders.json`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Shopify-Access-Token": session.accessToken,
-        },
-        body: JSON.stringify(orderPayload)
-      });
-
-      const createdOrderData = await createOrderResp.json();
-
-      if (!createOrderResp.ok || createdOrderData.errors) {
-        console.error("[razorpay-webhook] Failed to create unpaid order from draft.", JSON.stringify(createdOrderData.errors));
+      if (!newOrder) {
+        console.error(
+          "[razorpay-webhook] Draft order completion returned no order."
+        );
         return new Response("OK", { status: 200 });
       }
 
-      const newOrder = createdOrderData.order;
-      const orderIdGql = `gid://shopify/Order/${newOrder.id}`;
+      const orderIdGql = newOrder.id;
       const orderName = newOrder.name;
 
-      // Delete the old draft order
-      await admin.graphql(`
-        mutation draftOrderDelete($input: DraftOrderDeleteInput!) {
-          draftOrderDelete(input: $input) { deletedId }
-        }
-      `, { variables: { input: { id: draftOrderGid } } });
-
-      // Step 3: Extract paid amount from Razorpay payload
+      // Step 2: Extract paid amount from Razorpay payload (partial deposit)
       const amountPaidInPaise = paymentLinkEntity?.amount_paid || 0;
-      const amountPaid = (amountPaidInPaise / 100).toFixed(2);
+      const amountPaid = (amountPaidInPaise / 100).toFixed(2); // "200.00"
       const currencyCode = paymentLinkEntity?.currency || "INR";
 
-      if (amountPaid > 0) {
-        // Step 4: Create a transaction on the order using orderCreateManualPayment
-        const manualPaymentResp = await admin.graphql(
+      console.log(
+        `[razorpay-webhook] Razorpay paid amount: ${amountPaid} ${currencyCode} for order ${orderName}`
+      );
+
+      if (Number(amountPaid) > 0) {
+        // Step 3: Record this partial amount as a metafield on the order
+        // Namespace: "payments", Key: "advance_paid"
+        const metafieldResp = await admin.graphql(
           `#graphql
-          mutation orderCreateManualPayment($id: ID!, $amount: MoneyInput, $paymentMethodName: String) {
-            orderCreateManualPayment(id: $id, amount: $amount, paymentMethodName: $paymentMethodName) {
-              order { id name displayFinancialStatus }
-              userErrors { field message }
+          mutation SetOrderAdvancePaidMetafield($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              metafields {
+                id
+                namespace
+                key
+                value
+              }
+              userErrors {
+                field
+                message
+              }
             }
           }`,
           {
             variables: {
-              id: orderIdGql,
-              amount: {
-                amount: amountPaid.toString(),
-                currencyCode: currencyCode
-              },
-              paymentMethodName: "Razorpay"
-            }
+              metafields: [
+                {
+                  ownerId: orderIdGql,
+                  namespace: "payments",
+                  key: "advance_paid",
+                  type: "number_decimal",
+                  value: amountPaid.toString(),
+                },
+              ],
+            },
           }
         );
 
-        const txData = await manualPaymentResp.json();
+        const metaData = await metafieldResp.json();
 
-        if (txData.data?.orderCreateManualPayment?.userErrors?.length > 0) {
-          console.error("[razorpay-webhook] Failed to create manual payment.", JSON.stringify(txData.data.orderCreateManualPayment.userErrors));
-        } else if (txData.errors) {
-          console.error("[razorpay-webhook] GraphQL error while creating manual payment:", JSON.stringify(txData.errors));
+        if (metaData.data?.metafieldsSet?.userErrors?.length > 0) {
+          console.error(
+            "[razorpay-webhook] Failed to set advance_paid metafield:",
+            JSON.stringify(metaData.data.metafieldsSet.userErrors)
+          );
+        } else if (metaData.errors) {
+          console.error(
+            "[razorpay-webhook] GraphQL error in metafieldsSet:",
+            JSON.stringify(metaData.errors)
+          );
         } else {
-          const newStatus = txData.data?.orderCreateManualPayment?.order?.displayFinancialStatus;
-          console.log(`[razorpay-webhook] Recorded payment of ${amountPaid} INR for Order ${orderName}. New status: ${newStatus}`);
+          console.log(
+            `[razorpay-webhook] Recorded advance payment of ${amountPaid} ${currencyCode} on order ${orderName} via metafield payments.advance_paid`
+          );
         }
       }
 
       console.log(
         orderName
-          ? `[razorpay-webhook] Payment confirmed. Draft order ${referenceId} → Shopify Order ${orderName} (Paid: ${amountPaid})`
+          ? `[razorpay-webhook] Payment confirmed. Draft order ${referenceId} → Shopify Order ${orderName} (Advance paid: ${amountPaid})`
           : `[razorpay-webhook] Payment confirmed. Draft order ${referenceId} completed.`
       );
     } catch (error) {

@@ -5,6 +5,13 @@ import { createReadableStreamFromReadable } from "@remix-run/node";
 import { isbot } from "isbot";
 import { addDocumentResponseHeaders } from "./shopify.server";
 
+// Suppress Polaris useLayoutEffect SSR warning (Polaris uses it internally, not fixable from app code)
+const originalConsoleError = console.error;
+console.error = (...args) => {
+  if (typeof args[0] === "string" && args[0].includes("useLayoutEffect does nothing on the server")) return;
+  originalConsoleError(...args);
+};
+
 export const streamTimeout = 5000;
 
 export default async function handleRequest(
