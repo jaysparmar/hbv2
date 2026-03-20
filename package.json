@@ -18,7 +18,7 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "host": "ngrok http --url=mongrel-many-tick.ngrok-free.app 3000"
+    "host": "ngrok http --url=crm.hittersports.in 3000"
   },
   "type": "module",
   "engines": {

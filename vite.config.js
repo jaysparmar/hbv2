@@ -39,7 +39,7 @@ if (host === "localhost") {
 
 export default defineConfig({
   server: {
-    allowedHosts: [host, "mongrel-many-tick.ngrok-free.app"],
+    allowedHosts: [host, "crm.hittersports.in"],
     cors: {
       preflightContinue: true,
     },

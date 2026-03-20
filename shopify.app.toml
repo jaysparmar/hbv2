@@ -2,7 +2,7 @@
 
 client_id = "2fd421150cde5e94daa5d85cc77123c4"
 name = "hbv2"
-application_url = "https://mongrel-many-tick.ngrok-free.app"
+application_url = "https://crm.hittersports.in"
 embedded = true
 
 [build]
@@ -24,4 +24,4 @@ api_version = "2026-04"
 scopes = "write_products,read_orders,write_orders,write_draft_orders,read_customers,write_merchant_managed_fulfillment_orders,write_third_party_fulfillment_orders,write_assigned_fulfillment_orders,write_fulfillments,write_payment_terms"
 
 [auth]
-redirect_urls = [ "https://mongrel-many-tick.ngrok-free.app/api/auth" ]
+redirect_urls = [ "https://crm.hittersports.in/api/auth" ]
