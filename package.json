@@ -3,14 +3,14 @@
   "private": true,
   "scripts": {
     "build": "remix vite:build",
-    "deve": "PORT=59619 remix vite:dev",
+    "deve": "PORT=3000 remix vite:dev",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "shopify app deploy",
     "config:use": "shopify app config use",
     "env": "shopify app env",
-    "start": "PORT=59619 remix-serve ./build/server/index.js",
+    "start": "PORT=3000 remix-serve ./build/server/index.js",
     "docker-start": "npm run setup && npm run start",
     "setup": "prisma generate && prisma migrate deploy",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint .",
@@ -18,7 +18,7 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "host": "ngrok http --url=mongrel-many-tick.ngrok-free.app 59619"
+    "host": "ngrok http --url=mongrel-many-tick.ngrok-free.app 3000"
   },
   "type": "module",
   "engines": {
