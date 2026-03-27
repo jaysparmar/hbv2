@@ -39,8 +39,9 @@ model Package {
   length    Float
   width     Float
   height    Float
-  weight    Float
-  createdAt DateTime @default(now())
+  weight           Float
+  valueOfRepayment String?
+  createdAt        DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
@@ -65,8 +66,9 @@ model Parcel {
   length         Float
   width          Float
   height         Float
-  weight         Float
-  dispatchStatus String        @default("pending")
+  weight           Float
+  valueOfRepayment String?
+  dispatchStatus   String        @default("pending")
   dispatchmentId Int?
   dispatchment   Dispatchment? @relation(fields: [dispatchmentId], references: [id])
   createdAt      DateTime      @default(now())

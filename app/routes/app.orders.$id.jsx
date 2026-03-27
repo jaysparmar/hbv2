@@ -277,6 +277,7 @@ export const action = async ({ request, params }) => {
         const parcelWidth = parseFloat(formData.get("parcelWidth")) || 0;
         const parcelHeight = parseFloat(formData.get("parcelHeight")) || 0;
         const parcelWeight = parseFloat(formData.get("parcelWeight")) || 0;
+        const parcelValueOfRepayment = formData.get("parcelValueOfRepayment")?.toString() || null;
 
         let trackingUrl = formData.get("trackingUrl") || "";
         if (trackingUrl && awbNumber) {
@@ -343,6 +344,7 @@ export const action = async ({ request, params }) => {
                         width: parcelWidth,
                         height: parcelHeight,
                         weight: parcelWeight,
+                        valueOfRepayment: parcelValueOfRepayment,
                         dispatchStatus: "pending",
                     },
                 });
@@ -469,6 +471,7 @@ export default function OrderDetails() {
     const [parcelWidth, setParcelWidth] = useState("");
     const [parcelHeight, setParcelHeight] = useState("");
     const [parcelWeight, setParcelWeight] = useState("");
+    const [parcelValueOfRepayment, setParcelValueOfRepayment] = useState("");
 
     const [shippingAddress, setShippingAddress] = useState({
         address1: "",
@@ -536,6 +539,7 @@ export default function OrderDetails() {
         setParcelWidth("");
         setParcelHeight("");
         setParcelWeight("");
+        setParcelValueOfRepayment("");
 
         if (order?.shippingAddress) {
             setShippingAddress({
@@ -572,11 +576,13 @@ export default function OrderDetails() {
             setParcelWidth(pkg.width.toString());
             setParcelHeight(pkg.height.toString());
             setParcelWeight(pkg.weight.toString());
+            setParcelValueOfRepayment(pkg.valueOfRepayment || "");
         } else {
             setParcelLength("");
             setParcelWidth("");
             setParcelHeight("");
             setParcelWeight("");
+            setParcelValueOfRepayment("");
         }
     }, [packages]);
 
@@ -612,6 +618,7 @@ export default function OrderDetails() {
         formData.parcelWidth = parcelWidth;
         formData.parcelHeight = parcelHeight;
         formData.parcelWeight = parcelWeight;
+        formData.parcelValueOfRepayment = parcelValueOfRepayment;
 
         submit(formData, { method: "post" });
         closeWizard();
@@ -1181,6 +1188,14 @@ ${isCOD ? `
                                         disabled={selectedPackage !== "custom" && selectedPackage !== ""}
                                     />
                                 </FormLayout.Group>
+                                <TextField
+                                    label="Value Of Repayment"
+                                    type="text"
+                                    value={parcelValueOfRepayment}
+                                    onChange={setParcelValueOfRepayment}
+                                    autoComplete="off"
+                                    disabled={selectedPackage !== "custom" && selectedPackage !== ""}
+                                />
                             </FormLayout>
                         </BlockStack>
                     )}

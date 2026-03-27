@@ -34,6 +34,7 @@ export const action = async ({ request }) => {
                 width: parseFloat(formData.get("width")) || 0,
                 height: parseFloat(formData.get("height")) || 0,
                 weight: parseFloat(formData.get("weight")) || 0,
+                valueOfRepayment: formData.get("valueOfRepayment")?.toString() || null,
             },
         });
         return json({ status: "success", message: "Package created" });
@@ -49,6 +50,7 @@ export const action = async ({ request }) => {
                 width: parseFloat(formData.get("width")) || 0,
                 height: parseFloat(formData.get("height")) || 0,
                 weight: parseFloat(formData.get("weight")) || 0,
+                valueOfRepayment: formData.get("valueOfRepayment")?.toString() || null,
             },
         });
         return json({ status: "success", message: "Package updated" });
@@ -107,6 +109,7 @@ export default function PackageMaster() {
     const [width, setWidth] = useState("");
     const [height, setHeight] = useState("");
     const [weight, setWeight] = useState("");
+    const [valueOfRepayment, setValueOfRepayment] = useState("");
 
     const isSubmitting = navigation.state === "submitting";
 
@@ -116,6 +119,7 @@ export default function PackageMaster() {
         setWidth("");
         setHeight("");
         setWeight("");
+        setValueOfRepayment("");
         setEditingPackage(null);
     }, []);
 
@@ -131,6 +135,7 @@ export default function PackageMaster() {
         setWidth(pkg.width.toString());
         setHeight(pkg.height.toString());
         setWeight(pkg.weight.toString());
+        setValueOfRepayment(pkg.valueOfRepayment || "");
         setIsModalOpen(true);
     }, []);
 
@@ -147,14 +152,15 @@ export default function PackageMaster() {
             length,
             width,
             height,
-            weight
+            weight,
+            valueOfRepayment
         };
         if (editingPackage) {
             formData.id = editingPackage.id;
         }
         submit(formData, { method: "post" });
         handleChange();
-    }, [editingPackage, name, length, width, height, weight, submit, handleChange]);
+    }, [editingPackage, name, length, width, height, weight, valueOfRepayment, submit, handleChange]);
 
 
     const rowMarkup = packages.map((pkg, index) => (
@@ -166,6 +172,7 @@ export default function PackageMaster() {
             <IndexTable.Cell>{pkg.width} cm</IndexTable.Cell>
             <IndexTable.Cell>{pkg.height} cm</IndexTable.Cell>
             <IndexTable.Cell>{pkg.weight} kg</IndexTable.Cell>
+            <IndexTable.Cell>{pkg.valueOfRepayment || "-"}</IndexTable.Cell>
             <IndexTable.Cell>
                 <InlineStack gap="200">
                     <Button size="micro" onClick={() => handleEdit(pkg)}>Edit</Button>
@@ -225,6 +232,7 @@ export default function PackageMaster() {
                                 { title: "Width (cm)" },
                                 { title: "Height (cm)" },
                                 { title: "Weight (kg)" },
+                                { title: "Value of Repayment" },
                                 { title: "Actions" },
                             ]}
                             selectable={false}
@@ -289,6 +297,13 @@ export default function PackageMaster() {
                                 label="Weight (kg)"
                                 value={weight}
                                 onChange={setWeight}
+                                autoComplete="off"
+                            />
+                            <TextField
+                                type="text"
+                                label="Value Of Repayment"
+                                value={valueOfRepayment}
+                                onChange={setValueOfRepayment}
                                 autoComplete="off"
                             />
                         </InlineStack>

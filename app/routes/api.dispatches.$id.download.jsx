@@ -1,7 +1,6 @@
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import * as xlsx from "xlsx";
-import config from "../config";
 
 export async function loader({ request, params }) {
     const { admin } = await authenticate.admin(request);
@@ -83,20 +82,21 @@ export async function loader({ request, params }) {
         rows.push({
             "Sr. No.": i + 1,
             "Barcode No": parcel.awbNumber || "",
-            "Physical Weight": (parcel.weight || 0) * 100,
+            "Physical Weight": (parcel.weight || 0) * 1000,
             "RTG": "FALSE",
             "OTP": "FALSE",
             "Receiver City": rAddr.city || "",
             "Recever Pincode": rAddr.zip || "",
             "Rece. Name": customerName,
-            "Receiver Address Line 1": rAddr.address1 || "",
-            "Receiver Address Line 2": rAddr.address2 || "",
+
+            "Receiver Address Line 1": rAddr.city || "",
+            "Receiver Address Line 2": rAddr.city || "",
             "Receiver Address Line 3": "",
             "ACK": "False",
             "Sender Mobile Number": sAddr.phone || "",
             "Receiver Mobile Number": cPhone,
             "Pre Payment Code": "",
-            "Value Of Repayment": "",
+            "Value Of Repayment": parcel.valueOfRepayment || "",
             "COD": isCOD ? "COD" : "BANK",
             "Value For COD": isCOD ? outstandingAmount : 0,
             "Insurance Type": "",
@@ -109,7 +109,7 @@ export async function loader({ request, params }) {
             "Delivery Instruction": "ND",
             "Delivery Slot": "02:00-04:00",
             "Instruction RTS": "RTS",
-            "Sender Name": config.india_post_excel.sender_name || "",
+            "Sender Name": "Advait Ent",
             "Sender Company Name": "",
             "Sender City": sAddr.city || "",
             "Sender State": sAddr.province || "",
@@ -126,8 +126,8 @@ export async function loader({ request, params }) {
             "Receiver Tax Ref": "",
             "ALT Address Flag": "FALSE",
             "Bulk Reference": "",
-            "Sender Add Line 1": sAddr.address1 || "",
-            "Sender Add Line 2": sAddr.address2 || "",
+            "Sender Add Line 1": "Bhuj",
+            "Sender Add Line 2": "Kachchh",
             "Sender Add Line 3": ""
         });
     }
