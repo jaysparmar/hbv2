@@ -118,6 +118,28 @@ export default function Dispatches() {
 
     const [isWizardOpen, setIsWizardOpen] = useState(false);
     const [wizardStep, setWizardStep] = useState(1);
+    const [downloadingId, setDownloadingId] = useState(null);
+
+    const handleDownload = async (dispatchId) => {
+        setDownloadingId(dispatchId);
+        try {
+            const response = await fetch(`/api/dispatches/${dispatchId}/download`);
+            if (!response.ok) throw new Error("Failed to download");
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `INDIA_POST_FINAL_REPORT_DISPATCH_${dispatchId}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error("Download error:", error);
+        } finally {
+            setDownloadingId(null);
+        }
+    };
 
     // Step 1 State
     const [selectedCarrier, setSelectedCarrier] = useState("");
@@ -278,6 +300,14 @@ export default function Dispatches() {
                                     <IndexTable.Cell>{new Date(dispatch.createdAt).toLocaleString()}</IndexTable.Cell>
                                     <IndexTable.Cell>
                                         <InlineStack gap="200">
+                                            <Button
+                                                onClick={() => handleDownload(dispatch.id)}
+                                                loading={downloadingId === dispatch.id}
+                                                title="Download Report"
+                                                variant="plain"
+                                            >
+                                                Export
+                                            </Button>
                                             <Button
                                                 icon={dispatch.transitStatus === "pending" ? DeliveryIcon : CheckIcon}
                                                 onClick={() => setTransitConfirmData({ id: dispatch.id, status: dispatch.transitStatus })}
