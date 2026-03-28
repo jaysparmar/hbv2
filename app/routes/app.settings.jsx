@@ -13,7 +13,7 @@ import {
   Divider,
   Badge,
 } from "@shopify/polaris";
-import { EmailNewsletterIcon, CreditCardIcon, ChevronRightIcon, PersonIcon } from "@shopify/polaris-icons";
+import { EmailNewsletterIcon, CreditCardIcon, ChevronRightIcon, PersonIcon, FileIcon } from "@shopify/polaris-icons";
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
@@ -56,6 +56,13 @@ export default function SettingsPage() {
       icon: PersonIcon,
       title: "Staff Management",
       description: "Manage staff members for assigning orders.",
+      configured: true,
+    },
+    {
+      to: "/app/settings/print",
+      icon: FileIcon,
+      title: "Print Settings",
+      description: "Configure shipping label and invoice templates.",
       configured: true,
     },
   ];
