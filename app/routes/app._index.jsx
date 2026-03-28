@@ -17,6 +17,7 @@ import {
   IndexFilters,
   useSetIndexFiltersMode,
   ChoiceList,
+  List,
   BlockStack,
   TextField,
   Pagination,
@@ -34,7 +35,10 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import FulfillmentWizard from "../components/FulfillmentWizard";
+import { printInvoice } from "../utils/printInvoice";
 import { useState, useCallback, useEffect, useRef } from "react";
+import { ReceiptIcon } from "@shopify/polaris-icons";
 
 // ─── Loader ──────────────────────────────────────────────────────────────────
 
@@ -87,8 +91,10 @@ export const loader = async ({ request }) => {
   const pageInfo = ordersData.pageInfo;
 
   const staff = await prisma.staffMember.findMany({ orderBy: { name: "asc" } });
+  const carriers = await prisma.carrier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
+  const packages = await prisma.package.findMany({ orderBy: { name: "asc" } });
 
-  return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff };
+  return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages };
 };
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -261,7 +267,7 @@ export const action = async ({ request }) => {
 // ─── Orders list ──────────────────────────────────────────────────────────────
 
 export default function Index() {
-  const { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff } =
+  const { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages } =
     useLoaderData();
   const navigate = useNavigate();
   const submit = useSubmit();
@@ -280,6 +286,42 @@ export default function Index() {
   const [dateMinValue, setDateMinValue] = useState(dateMin);
   const [dateMaxValue, setDateMaxValue] = useState(dateMax);
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Fulfillment wizard state
+  const [fulfillWizardOpen, setFulfillWizardOpen] = useState(false);
+  const [fulfillTargetOrder, setFulfillTargetOrder] = useState(null);
+
+  const handleOpenFulfillWizard = useCallback((order) => {
+    setFulfillTargetOrder(order);
+    setFulfillWizardOpen(true);
+  }, []);
+
+  const closeFulfillWizard = useCallback(() => {
+    setFulfillWizardOpen(false);
+    setFulfillTargetOrder(null);
+  }, []);
+
+  // Print Invoice state
+  const invoiceFetcher = useFetcher();
+  const [invoiceOrderId, setInvoiceOrderId] = useState(null);
+
+  const handlePrintInvoice = useCallback((orderId) => {
+    setInvoiceOrderId(orderId);
+    const fd = new FormData();
+    fd.append("intent", "getLabelData");
+    fd.append("orderId", orderId);
+    invoiceFetcher.submit(fd, { method: "post", action: "/api/print-label" });
+  }, [invoiceFetcher]);
+
+  useEffect(() => {
+    if (invoiceFetcher.state !== "idle" || !invoiceFetcher.data) return;
+    if (invoiceFetcher.data.intent === "getLabelData" && invoiceOrderId) {
+      if (invoiceFetcher.data.order && invoiceFetcher.data.shop) {
+        printInvoice({ order: invoiceFetcher.data.order, shop: invoiceFetcher.data.shop });
+      }
+      setInvoiceOrderId(null);
+    }
+  }, [invoiceFetcher.state, invoiceFetcher.data, invoiceOrderId]);
 
   const timeoutId = useRef(null);
 
@@ -503,6 +545,8 @@ export default function Index() {
         currency: totalPriceSet.shopMoney.currencyCode,
       }).format(totalPriceSet.shopMoney.amount);
 
+      const canFulfill = displayFulfillmentStatus !== "FULFILLED";
+
       return (
         <IndexTable.Row
           id={id}
@@ -538,6 +582,31 @@ export default function Index() {
             >
               {displayFulfillmentStatus || "UNFULFILLED"}
             </Badge>
+          </IndexTable.Cell>
+          <IndexTable.Cell>
+            <InlineStack gap="200">
+              <Button
+                size="micro"
+                icon={ReceiptIcon}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePrintInvoice(id);
+                }}
+                loading={invoiceOrderId === id}
+                accessibilityLabel="Print Invoice"
+              />
+              {canFulfill && (
+                <Button
+                  size="micro"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenFulfillWizard({ id, name });
+                  }}
+                >
+                  Create Fulfillment
+                </Button>
+              )}
+            </InlineStack>
           </IndexTable.Cell>
         </IndexTable.Row>
       );
@@ -596,6 +665,7 @@ export default function Index() {
                 { title: "Total" },
                 { title: "Payment Status" },
                 { title: "Fulfillment Status" },
+                { title: "Actions" },
               ]}
               selectable={false}
               loading={isLoading}
@@ -641,6 +711,16 @@ export default function Index() {
         open={showCreateModal}
         onClose={() => setShowCreateModal(false)}
         staff={staff}
+      />
+
+      <FulfillmentWizard
+        open={fulfillWizardOpen}
+        onClose={closeFulfillWizard}
+        orderId={fulfillTargetOrder?.id}
+        orderName={fulfillTargetOrder?.name}
+        carriers={carriers}
+        packages={packages}
+        onFulfilled={() => submit({}, { method: "get" })}
       />
     </Page>
   );

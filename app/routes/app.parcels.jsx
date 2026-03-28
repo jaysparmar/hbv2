@@ -1,19 +1,25 @@
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit, useNavigation, useSearchParams } from "@remix-run/react";
+import { useLoaderData, useSubmit, useNavigation, useSearchParams, useFetcher } from "@remix-run/react";
 import {
     Page, Layout, Card, IndexTable, Text, Badge, Link, InlineStack,
     IndexFilters, useSetIndexFiltersMode, useIndexResourceState, ChoiceList,
-    Button, Modal, BlockStack, Banner
+    Button, Modal, BlockStack, Banner, Icon
 } from "@shopify/polaris";
+import { ReceiptIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { useState, useCallback, useRef, useEffect } from "react";
+import { printLabel } from "../utils/printLabel";
+import { printInvoice } from "../utils/printInvoice";
+
+const PARCELS_PER_PAGE = 25;
 
 export const loader = async ({ request }) => {
     await authenticate.admin(request);
     const url = new URL(request.url);
     const q = url.searchParams.get("q") || "";
     const dispatchStatusParam = url.searchParams.get("dispatchStatus") || "";
+    const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
 
     const AND = [];
     if (q) {
@@ -33,11 +39,18 @@ export const loader = async ({ request }) => {
 
     const where = AND.length > 0 ? { AND } : undefined;
 
-    const parcels = await prisma.parcel.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-    });
-    return json({ parcels, q, dispatchStatusParam });
+    const [parcels, totalCount] = await Promise.all([
+        prisma.parcel.findMany({
+            where,
+            orderBy: { createdAt: "desc" },
+            skip: (page - 1) * PARCELS_PER_PAGE,
+            take: PARCELS_PER_PAGE,
+        }),
+        prisma.parcel.count({ where }),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(totalCount / PARCELS_PER_PAGE));
+    return json({ parcels, q, dispatchStatusParam, page, totalPages, totalCount });
 };
 
 export const action = async ({ request }) => {
@@ -95,7 +108,7 @@ export const action = async ({ request }) => {
 };
 
 export default function ParcelsMaster() {
-    const { parcels, q, dispatchStatusParam } = useLoaderData();
+    const { parcels, q, dispatchStatusParam, page, totalPages, totalCount } = useLoaderData();
     const submit = useSubmit();
     const navigation = useNavigation();
 
@@ -111,6 +124,57 @@ export default function ParcelsMaster() {
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [parcelToDelete, setParcelToDelete] = useState(null);
     const [deleteError, setDeleteError] = useState(null);
+
+    // Print label state
+    const labelFetcher = useFetcher();
+    const [printingParcelId, setPrintingParcelId] = useState(null);
+    const [printingParcel, setPrintingParcel] = useState(null);
+
+    const handlePrintLabel = useCallback((parcel) => {
+        setPrintingParcelId(parcel.id);
+        setPrintingParcel(parcel);
+        const fd = new FormData();
+        fd.append("intent", "getLabelData");
+        fd.append("orderId", parcel.orderId);
+        labelFetcher.submit(fd, { method: "post", action: "/api/print-label" });
+    }, [labelFetcher]);
+
+    useEffect(() => {
+        if (labelFetcher.state !== "idle" || !labelFetcher.data) return;
+        if (labelFetcher.data.intent === "getLabelData" && printingParcel) {
+            if (labelFetcher.data.order && labelFetcher.data.shop) {
+                printLabel({
+                    order: labelFetcher.data.order,
+                    shop: labelFetcher.data.shop,
+                    parcel: printingParcel,
+                });
+            }
+            setPrintingParcelId(null);
+            setPrintingParcel(null);
+        }
+    }, [labelFetcher.state, labelFetcher.data, printingParcel]);
+
+    // Print invoice state
+    const invoiceFetcher = useFetcher();
+    const [invoiceParcelId, setInvoiceParcelId] = useState(null);
+
+    const handlePrintInvoice = useCallback((parcel) => {
+        setInvoiceParcelId(parcel.id);
+        const fd = new FormData();
+        fd.append("intent", "getLabelData");
+        fd.append("orderId", parcel.orderId);
+        invoiceFetcher.submit(fd, { method: "post", action: "/api/print-label" });
+    }, [invoiceFetcher]);
+
+    useEffect(() => {
+        if (invoiceFetcher.state !== "idle" || !invoiceFetcher.data) return;
+        if (invoiceFetcher.data.intent === "getLabelData" && invoiceParcelId) {
+            if (invoiceFetcher.data.order && invoiceFetcher.data.shop) {
+                printInvoice({ order: invoiceFetcher.data.order, shop: invoiceFetcher.data.shop });
+            }
+            setInvoiceParcelId(null);
+        }
+    }, [invoiceFetcher.state, invoiceFetcher.data, invoiceParcelId]);
 
     useEffect(() => {
         setQueryValue(q);
@@ -246,19 +310,44 @@ export default function ParcelsMaster() {
                 {getStatusBadge(parcel.dispatchStatus)}
             </IndexTable.Cell>
             <IndexTable.Cell>
+                {parcel.dispatchmentId ? (
+                    <Link url={`/app/dispatches/${parcel.dispatchmentId}`}>
+                        #{parcel.dispatchmentId}
+                    </Link>
+                ) : (
+                    <Text as="span" tone="subdued">—</Text>
+                )}
+            </IndexTable.Cell>
+            <IndexTable.Cell>
                 <Text as="span" tone="subdued">
                     {new Date(parcel.createdAt).toLocaleDateString()}
                 </Text>
             </IndexTable.Cell>
             <IndexTable.Cell>
-                <Button
-                    tone="critical"
-                    size="micro"
-                    onClick={() => openDeleteModal(parcel)}
-                    disabled={isSubmitting}
-                >
-                    Delete
-                </Button>
+                <InlineStack gap="200">
+                    <Button
+                        size="micro"
+                        icon={ReceiptIcon}
+                        onClick={() => handlePrintInvoice(parcel)}
+                        loading={invoiceParcelId === parcel.id}
+                        accessibilityLabel="Print Invoice"
+                    />
+                    <Button
+                        size="micro"
+                        onClick={() => handlePrintLabel(parcel)}
+                        loading={printingParcelId === parcel.id}
+                    >
+                        Print Label
+                    </Button>
+                    <Button
+                        tone="critical"
+                        size="micro"
+                        onClick={() => openDeleteModal(parcel)}
+                        disabled={isSubmitting}
+                    >
+                        Delete
+                    </Button>
+                </InlineStack>
             </IndexTable.Cell>
         </IndexTable.Row>
     ));
@@ -312,6 +401,7 @@ export default function ParcelsMaster() {
                                 { title: "AWB Number" },
                                 { title: "Dimensions (L x W x H) & W" },
                                 { title: "Dispatch Status" },
+                                { title: "Dispatch" },
                                 { title: "Created At" },
                                 { title: "Actions" },
                             ]}
@@ -320,6 +410,38 @@ export default function ParcelsMaster() {
                         >
                             {rowMarkup}
                         </IndexTable>
+                        {/* Pagination */}
+                        <div style={{ padding: "16px", display: "flex", justifyContent: "center", alignItems: "center", gap: "12px", borderTop: "1px solid var(--p-color-border)" }}>
+                            <Button
+                                disabled={page <= 1}
+                                onClick={() => {
+                                    const fd = new FormData();
+                                    if (queryValue) fd.append("q", queryValue);
+                                    if (dispatchStatusValue.length) fd.append("dispatchStatus", dispatchStatusValue.join(","));
+                                    fd.append("page", (page - 1).toString());
+                                    submit(fd, { method: "get" });
+                                }}
+                                size="micro"
+                            >
+                                Previous
+                            </Button>
+                            <Text as="span" tone="subdued">
+                                Page {page} of {totalPages} ({totalCount} parcels)
+                            </Text>
+                            <Button
+                                disabled={page >= totalPages}
+                                onClick={() => {
+                                    const fd = new FormData();
+                                    if (queryValue) fd.append("q", queryValue);
+                                    if (dispatchStatusValue.length) fd.append("dispatchStatus", dispatchStatusValue.join(","));
+                                    fd.append("page", (page + 1).toString());
+                                    submit(fd, { method: "get" });
+                                }}
+                                size="micro"
+                            >
+                                Next
+                            </Button>
+                        </div>
                     </Card>
                 </Layout.Section>
             </Layout>
