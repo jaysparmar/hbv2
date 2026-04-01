@@ -1,47 +1,73 @@
 /**
  * Shared print label utility.
  * Generates HTML for a shipping label and opens a print window.
+ * Supports printSettings overrides from the database.
  */
 
 export function numberToWords(num) {
-    const ones = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
-        "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
-    const tens = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
-    function convert(n) {
-        if (n === 0) return "";
-        if (n < 20) return ones[n];
-        if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? " " + ones[n % 10] : "");
-        if (n < 1000) return ones[Math.floor(n / 100)] + " HUNDRED" + (n % 100 ? " AND " + convert(n % 100) : "");
-        if (n < 100000) return convert(Math.floor(n / 1000)) + " THOUSAND" + (n % 1000 ? " " + convert(n % 1000) : "");
-        return convert(Math.floor(n / 100000)) + " LAKH" + (n % 100000 ? " " + convert(n % 100000) : "");
-    }
-    return (convert(Math.round(num)) || "ZERO") + " ONLY";
+  const ones = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
+    "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN", "SEVENTEEN", "EIGHTEEN", "NINETEEN"];
+  const tens = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"];
+  function convert(n) {
+    if (n === 0) return "";
+    if (n < 20) return ones[n];
+    if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? " " + ones[n % 10] : "");
+    if (n < 1000) return ones[Math.floor(n / 100)] + " HUNDRED" + (n % 100 ? " AND " + convert(n % 100) : "");
+    if (n < 100000) return convert(Math.floor(n / 1000)) + " THOUSAND" + (n % 1000 ? " " + convert(n % 1000) : "");
+    return convert(Math.floor(n / 100000)) + " LAKH" + (n % 100000 ? " " + convert(n % 100000) : "");
+  }
+  return (convert(Math.round(num)) || "ZERO") + " ONLY";
 }
 
 /**
  * Generate the full HTML document for a shipping label.
  *
  * @param {Object} params
- * @param {Object} params.order  - Shopify order object (name, customer, shippingAddress, lineItems, totalPriceSet, totalOutstandingSet, createdAt)
- * @param {Object} params.shop   - Shopify shop object (name, billingAddress)
- * @param {Object} params.parcel - Parcel record (awbNumber, carrierName, length, width, height, weight)
+ * @param {Object} params.order          - Shopify order object
+ * @param {Object} params.shop           - Shopify shop object
+ * @param {Object} params.parcel         - Parcel record
+ * @param {Object} [params.printSettings] - Optional print settings from DB
  * @returns {string} Full HTML document string
  */
-export function generateLabelHtml({ order, shop, parcel }) {
-    const outstandingAmount = parseFloat(order.totalOutstandingSet?.shopMoney?.amount || 0);
-    const isCOD = outstandingAmount > 0;
-    const currency = order.totalPriceSet.shopMoney.currencyCode;
-    const addr = order.shippingAddress || {};
-    const cName = order.customer
-        ? `${order.customer.firstName || ""} ${order.customer.lastName || ""}`.trim()
-        : "";
-    const customerPhone = addr.phone || order.customer?.defaultPhoneNumber?.phoneNumber || "";
-    const storeAddr = shop?.billingAddress || {};
-    const orderDate = new Date(order.createdAt).toLocaleDateString("en-IN");
-    const products = order.lineItems.edges.map(({ node }) => node);
-    const fmt = (amt) => new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amt);
+export function generateLabelHtml({ order, shop, parcel, printSettings = {} }) {
+  const s = printSettings;
+  const outstandingAmount = parseFloat(order.totalOutstandingSet?.shopMoney?.amount || 0);
+  const isCOD = outstandingAmount > 0;
+  const currency = order.totalPriceSet.shopMoney.currencyCode;
+  const addr = order.shippingAddress || {};
+  const cName = order.customer
+    ? `${order.customer.firstName || ""} ${order.customer.lastName || ""}`.trim()
+    : "";
+  const customerPhone = addr.phone || order.customer?.defaultPhoneNumber?.phoneNumber || "";
+  const orderDate = new Date(order.createdAt).toLocaleDateString("en-IN");
+  const products = order.lineItems.edges.map(({ node }) => node);
+  if (parcel?.addons) {
+      parcel.addons.forEach(pa => {
+          products.push({
+              title: `${pa.addon.name} (Free Add-on)`,
+              quantity: pa.quantity,
+              originalTotalSet: { shopMoney: { amount: "0.00", currencyCode: currency } }
+          });
+      });
+  }
+  const fmt = (amt) => new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amt);
 
-    return `<!DOCTYPE html>
+  // Use settings overrides or fall back to shop data
+  const headerText = s.label_header || "ADVAIT ENTERPRISE" || "SHIPPING LABEL";
+  const bnplLine1 = s.label_bnpl_line1 || "BOOKED UNDER BNPL";
+  const bnplLine2 = s.label_bnpl_line2 || "";
+  const billerId = s.label_biller_id || "";
+  const fromName = s.label_from_name || "ADVAIT ENTERPRISE" || "";
+  const storeAddr = {
+    address1: s.label_from_address1 || shop?.billingAddress?.address1 || "",
+    address2: s.label_from_address2 || shop?.billingAddress?.address2 || "",
+    city: s.label_from_city || shop?.billingAddress?.city || "",
+    province: s.label_from_province || shop?.billingAddress?.province || "",
+    zip: s.label_from_zip || shop?.billingAddress?.zip || "",
+    phone: s.label_from_phone || shop?.billingAddress?.phone || "",
+  };
+
+  return `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
 <title>Label - ${order.name}</title>
@@ -72,11 +98,11 @@ td { border: 0.5pt solid #000; padding: 1mm; }
 @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 </style></head>
 <body><div class="label">
-<div class="header">${shop?.name || "SHIPPING LABEL"}</div>
+<div class="header">${headerText}</div>
 <div class="bnpl-box">
-  <div class="bnpl-main">BOOKED UNDER BNPL${isCOD ? " (SP-COD)" : ""}</div>
-  <div class="bnpl-sub">BHUJ HPO - 370001(GUJ-K)</div>
-  <div class="bnpl-sub">Biller ID: 0000058749</div>
+  <div class="bnpl-main">${bnplLine1}${isCOD ? " (SP-COD)" : ""}</div>
+  ${bnplLine2 ? `<div class="bnpl-sub">${bnplLine2}</div>` : ""}
+  ${billerId ? `<div class="bnpl-sub">Biller ID: ${billerId}</div>` : ""}
 </div>
 ${isCOD ? `
 <div class="cod-box">
@@ -96,7 +122,7 @@ ${isCOD ? `
   </div>
   <div class="half">
     <div class="sec-title">From,</div>
-    <div class="addr-name">${shop?.name || ""}</div>
+    <div class="addr-name">${fromName}</div>
     ${storeAddr.address1 ? `<div>${storeAddr.address1}</div>` : ""}
     ${storeAddr.address2 ? `<div>${storeAddr.address2}</div>` : ""}
     <div>${[storeAddr.city, storeAddr.province, storeAddr.zip].filter(Boolean).join(", ")}</div>
@@ -133,7 +159,7 @@ ${isCOD ? `
  * @param {Object} params - same as generateLabelHtml
  */
 export function printLabel(params) {
-    const html = generateLabelHtml(params);
-    const w = window.open("", "_blank", "width=500,height=720");
-    if (w) { w.document.write(html); w.document.close(); }
+  const html = generateLabelHtml(params);
+  const w = window.open("", "_blank", "width=500,height=720");
+  if (w) { w.document.write(html); w.document.close(); }
 }

@@ -70,6 +70,22 @@ export const action = async ({ request }) => {
         const parcelWeight = parseFloat(formData.get("parcelWeight")) || 0;
         const parcelValueOfRepayment = formData.get("parcelValueOfRepayment")?.toString() || null;
 
+        const addonPayloadRaw = formData.get("addonPayload");
+        const selectedAddons = addonPayloadRaw ? JSON.parse(addonPayloadRaw) : [];
+
+        if (selectedAddons.length > 0) {
+            const addonIds = selectedAddons.map(a => parseInt(a.id, 10));
+            const addons = await prisma.addonProduct.findMany({
+                where: { id: { in: addonIds } }
+            });
+            for (const item of selectedAddons) {
+                const dbAddon = addons.find(a => a.id === parseInt(item.id, 10));
+                if (!dbAddon || !dbAddon.isActive || dbAddon.stock < item.quantity) {
+                    return json({ intent: "fulfill", errors: [{ message: `Add-on ${dbAddon?.name || item.id} is out of stock or inactive.` }] });
+                }
+            }
+        }
+
         let trackingUrl = formData.get("trackingUrl") || "";
         if (trackingUrl && awbNumber) {
             trackingUrl = trackingUrl.replace("{awb_number}", awbNumber);
@@ -110,22 +126,52 @@ export const action = async ({ request }) => {
         const newFulfillmentId = result.data?.fulfillmentCreateV2?.fulfillment?.id;
         let createdParcel = null;
         if (newFulfillmentId) {
-            createdParcel = await prisma.parcel.create({
-                data: {
-                    orderId,
-                    orderName,
-                    fulfillmentId: newFulfillmentId,
-                    carrierId: carrierIdStr ? parseInt(carrierIdStr, 10) : null,
-                    carrierName: carrierName || "Custom",
-                    awbNumber: awbNumber || "",
-                    length: parcelLength,
-                    width: parcelWidth,
-                    height: parcelHeight,
-                    weight: parcelWeight,
-                    valueOfRepayment: parcelValueOfRepayment,
-                    dispatchStatus: "pending",
-                },
-            });
+            try {
+                createdParcel = await prisma.$transaction(async (tx) => {
+                    const parcel = await tx.parcel.create({
+                        data: {
+                            orderId,
+                            orderName,
+                            fulfillmentId: newFulfillmentId,
+                            carrierId: carrierIdStr ? parseInt(carrierIdStr, 10) : null,
+                            carrierName: carrierName || "Custom",
+                            awbNumber: awbNumber || "",
+                            length: parcelLength,
+                            width: parcelWidth,
+                            height: parcelHeight,
+                            weight: parcelWeight,
+                            valueOfRepayment: parcelValueOfRepayment,
+                            dispatchStatus: "pending",
+                        },
+                    });
+
+                    if (selectedAddons.length > 0) {
+                        for (const item of selectedAddons) {
+                            const addonIdInt = parseInt(item.id, 10);
+                            const updated = await tx.addonProduct.update({
+                                where: { id: addonIdInt },
+                                data: { stock: { decrement: item.quantity } },
+                                select: { stock: true, name: true }
+                            });
+                            if (updated.stock < 0) {
+                                throw new Error(`Add-on ${updated.name} ran out of stock during transaction.`);
+                            }
+                            await tx.parcelAddon.create({
+                                data: {
+                                    parcelId: parcel.id,
+                                    addonId: addonIdInt,
+                                    quantity: item.quantity,
+                                }
+                            });
+                        }
+                    }
+
+                    return parcel;
+                });
+            } catch (error) {
+                // Return a user-friendly error if stock drops mid-transaction
+                return json({ intent: "fulfill", errors: [{ message: error.message }] });
+            }
         }
 
         return json({ intent: "fulfill", success: true, parcel: createdParcel });

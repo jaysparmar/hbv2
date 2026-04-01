@@ -93,8 +93,12 @@ export const loader = async ({ request }) => {
   const staff = await prisma.staffMember.findMany({ orderBy: { name: "asc" } });
   const carriers = await prisma.carrier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
   const packages = await prisma.package.findMany({ orderBy: { name: "asc" } });
+  const addons = await prisma.addonProduct.findMany({
+      where: { isActive: true, stock: { gt: 0 } },
+      orderBy: { name: "asc" },
+  });
 
-  return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages };
+  return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons };
 };
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -267,7 +271,7 @@ export const action = async ({ request }) => {
 // ─── Orders list ──────────────────────────────────────────────────────────────
 
 export default function Index() {
-  const { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages } =
+  const { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons } =
     useLoaderData();
   const navigate = useNavigate();
   const submit = useSubmit();
@@ -317,7 +321,7 @@ export default function Index() {
     if (invoiceFetcher.state !== "idle" || !invoiceFetcher.data) return;
     if (invoiceFetcher.data.intent === "getLabelData" && invoiceOrderId) {
       if (invoiceFetcher.data.order && invoiceFetcher.data.shop) {
-        printInvoice({ order: invoiceFetcher.data.order, shop: invoiceFetcher.data.shop });
+        printInvoice({ order: invoiceFetcher.data.order, shop: invoiceFetcher.data.shop, printSettings: invoiceFetcher.data.printSettings });
       }
       setInvoiceOrderId(null);
     }
@@ -720,6 +724,7 @@ export default function Index() {
         orderName={fulfillTargetOrder?.name}
         carriers={carriers}
         packages={packages}
+        addons={addons}
         onFulfilled={() => submit({}, { method: "get" })}
       />
     </Page>

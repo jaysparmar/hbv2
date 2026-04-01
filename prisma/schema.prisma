@@ -71,6 +71,7 @@ model Parcel {
   dispatchStatus   String        @default("pending")
   dispatchmentId Int?
   dispatchment   Dispatchment? @relation(fields: [dispatchmentId], references: [id])
+  addons         ParcelAddon[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 }
@@ -103,4 +104,27 @@ model StaffMember {
   phone       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model AddonProduct {
+  id        Int           @id @default(autoincrement())
+  name      String
+  stock     Int           @default(0)
+  isActive  Boolean       @default(true)
+  parcels   ParcelAddon[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model ParcelAddon {
+  id        Int          @id @default(autoincrement())
+  parcelId  Int
+  parcel    Parcel       @relation(fields: [parcelId], references: [id], onDelete: Cascade)
+  addonId   Int
+  addon     AddonProduct @relation(fields: [addonId], references: [id], onDelete: Cascade)
+  quantity  Int          @default(1)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([parcelId, addonId])
 }

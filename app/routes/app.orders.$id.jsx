@@ -29,6 +29,7 @@ import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import FulfillmentWizard from "../components/FulfillmentWizard";
 import { printLabel } from "../utils/printLabel";
+import { printInvoice } from "../utils/printInvoice";
 
 export const loader = async ({ request, params }) => {
     const { admin } = await authenticate.admin(request);
@@ -146,13 +147,33 @@ export const loader = async ({ request, params }) => {
         where: { isActive: true },
         orderBy: { name: "asc" },
     });
+    const addons = await prisma.addonProduct.findMany({
+        where: { isActive: true, stock: { gt: 0 } },
+        orderBy: { name: "asc" },
+    });
 
     const parcels = await prisma.parcel.findMany({
         where: { orderId },
         orderBy: { createdAt: "desc" },
+        include: { addons: { include: { addon: true } } },
     });
 
-    return json({ order, packages, carriers, parcels, shop });
+    // Load print settings
+    const PRINT_SETTING_KEYS = [
+        "label_header", "label_bnpl_line1", "label_bnpl_line2", "label_biller_id",
+        "label_from_name", "label_from_address1", "label_from_address2",
+        "label_from_city", "label_from_province", "label_from_zip", "label_from_phone",
+        "invoice_company_name", "invoice_title", "invoice_gstin",
+        "invoice_footer", "invoice_terms",
+        "invoice_from_address1", "invoice_from_address2",
+        "invoice_from_city", "invoice_from_province", "invoice_from_zip",
+        "invoice_from_phone", "invoice_from_email", "invoice_signature",
+    ];
+    const settingRows = await prisma.setting.findMany({ where: { key: { in: PRINT_SETTING_KEYS } } });
+    const printSettings = {};
+    settingRows.forEach(r => { printSettings[r.key] = r.value; });
+
+    return json({ order, packages, carriers, addons, parcels, shop, printSettings });
 };
 
 export const action = async ({ request, params }) => {
@@ -267,7 +288,7 @@ export const action = async ({ request, params }) => {
         }
     } else if (actionType === "deleteParcel") {
         const parcelId = parseInt(formData.get("parcelId"), 10);
-        const parcel = await prisma.parcel.findUnique({ where: { id: parcelId } });
+        const parcel = await prisma.parcel.findUnique({ where: { id: parcelId }, include: { addons: true } });
 
         if (!parcel) {
             errors = [{ message: "Parcel not found." }];
@@ -303,9 +324,17 @@ export const action = async ({ request, params }) => {
                     errors = realErrors;
                 }
             }
-            // Delete parcel from DB regardless (fulfillment may already be cancelled)
+            // Delete parcel and increment stock from DB regardless
             if (errors.length === 0) {
-                await prisma.parcel.delete({ where: { id: parcelId } });
+                await prisma.$transaction(async (tx) => {
+                    for (const addonLink of parcel.addons) {
+                        await tx.addonProduct.update({
+                            where: { id: addonLink.addonId },
+                            data: { stock: { increment: addonLink.quantity } },
+                        });
+                    }
+                    await tx.parcel.delete({ where: { id: parcelId } });
+                });
                 return json({ errors, deleted: true });
             }
         }
@@ -315,7 +344,7 @@ export const action = async ({ request, params }) => {
 };
 
 export default function OrderDetails() {
-    const { order, packages, carriers, parcels, shop } = useLoaderData();
+    const { order, packages, carriers, addons, parcels, shop, printSettings } = useLoaderData();
     const actionData = useActionData();
     const submit = useSubmit();
     const navigation = useNavigation();
@@ -376,8 +405,12 @@ export default function OrderDetails() {
     }, [submit]);
 
     const handlePrintLabel = useCallback((parcel) => {
-        printLabel({ order, shop, parcel });
-    }, [order, shop]);
+        printLabel({ order, shop, parcel, printSettings });
+    }, [order, shop, printSettings]);
+
+    const handlePrintInvoice = useCallback(() => {
+        printInvoice({ order, shop, printSettings, parcels });
+    }, [order, shop, printSettings, parcels]);
 
     if (!order) {
         return (
@@ -402,6 +435,12 @@ export default function OrderDetails() {
             backAction={{ content: "Orders", url: "/app" }}
             title={`Order ${order.name}`}
             subtitle={new Date(order.createdAt).toLocaleString()}
+            secondaryActions={[
+                {
+                    content: "Print Invoice",
+                    onAction: handlePrintInvoice,
+                },
+            ]}
             compactTitle
             titleMetadata={
                 <InlineStack gap="200" align="center">
@@ -724,6 +763,7 @@ export default function OrderDetails() {
                 orderName={order.name}
                 carriers={carriers}
                 packages={packages}
+                addons={addons}
                 onFulfilled={() => submit({}, { method: "get" })}
             />
         </Page>

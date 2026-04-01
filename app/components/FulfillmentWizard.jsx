@@ -3,9 +3,12 @@ import { useFetcher } from "@remix-run/react";
 import {
     Modal, BlockStack, InlineStack, Text, Button, TextField, Select,
     FormLayout, Banner, Box, Divider, List, Spinner, Icon,
+    Badge,
 } from "@shopify/polaris";
 import { CheckCircleIcon } from "@shopify/polaris-icons";
 import { printLabel } from "../utils/printLabel";
+import { printInvoice } from "../utils/printInvoice";
+import { ReceiptIcon, DeliveryIcon, DeleteIcon } from "@shopify/polaris-icons";
 
 /**
  * Self-contained Fulfillment Wizard Modal (4-step).
@@ -19,7 +22,7 @@ import { printLabel } from "../utils/printLabel";
  *   packages    {array}     package records from the DB
  *   onFulfilled {function?} optional callback fired after successful fulfillment
  */
-export default function FulfillmentWizard({ open, onClose, orderId, orderName, carriers = [], packages = [], onFulfilled }) {
+export default function FulfillmentWizard({ open, onClose, orderId, orderName, carriers = [], packages = [], addons = [], onFulfilled }) {
     const fetcher = useFetcher();
     const labelFetcher = useFetcher();
 
@@ -47,6 +50,8 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
     const [shippingAddress, setShippingAddress] = useState({
         address1: "", address2: "", city: "", province: "", zip: "", country: "",
     });
+    const [selectedAddons, setSelectedAddons] = useState([]);
+    const [selectedAddonId, setSelectedAddonId] = useState("");
 
     // Step 4 (Print Label)
     const [createdParcel, setCreatedParcel] = useState(null);
@@ -72,6 +77,8 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
             setParcelWeight("");
             setParcelVOR("");
             setShippingAddress({ address1: "", address2: "", city: "", province: "", zip: "", country: "" });
+            setSelectedAddons([]);
+            setSelectedAddonId("");
             setCreatedParcel(null);
             setLabelData(null);
             setLabelLoading(false);
@@ -148,10 +155,12 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
                 setLabelData({ order: labelFetcher.data.order, shop: labelFetcher.data.shop });
                 // Auto-print
                 if (createdParcel) {
+                    const fullParcel = labelFetcher.data.parcels?.find(p => p.id === createdParcel.id) || createdParcel;
                     printLabel({
                         order: labelFetcher.data.order,
                         shop: labelFetcher.data.shop,
-                        parcel: createdParcel,
+                        parcel: fullParcel,
+                        printSettings: labelFetcher.data.printSettings,
                     });
                     setLabelPrinted(true);
                 }
@@ -199,15 +208,23 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
         fd.append("parcelHeight", parcelHeight);
         fd.append("parcelWeight", parcelWeight);
         fd.append("parcelValueOfRepayment", parcelVOR);
+        fd.append("addonPayload", JSON.stringify(selectedAddons));
 
         fetcher.submit(fd, { method: "post", action: "/api/fulfillment" });
-    }, [selectedFulfillmentOrderId, orderName, orderId, orderData, quantities, selectedCarrier, awbNumber, parcelLength, parcelWidth, parcelHeight, parcelWeight, parcelVOR, carriers, fetcher]);
+    }, [selectedFulfillmentOrderId, orderName, orderId, orderData, quantities, selectedCarrier, awbNumber, parcelLength, parcelWidth, parcelHeight, parcelWeight, parcelVOR, selectedAddons, carriers, fetcher]);
 
     const handlePrintAgain = useCallback(() => {
         if (labelData && createdParcel) {
-            printLabel({ order: labelData.order, shop: labelData.shop, parcel: createdParcel });
+            const fullParcel = labelFetcher.data?.parcels?.find(p => p.id === createdParcel.id) || createdParcel;
+            printLabel({ order: labelData.order, shop: labelData.shop, parcel: fullParcel, printSettings: labelFetcher.data?.printSettings });
         }
-    }, [labelData, createdParcel]);
+    }, [labelData, createdParcel, labelFetcher.data]);
+
+    const handlePrintInvoice = useCallback(() => {
+        if (labelData) {
+            printInvoice({ order: labelData.order, shop: labelData.shop, printSettings: labelFetcher.data?.printSettings, parcels: labelFetcher.data?.parcels });
+        }
+    }, [labelData, labelFetcher.data]);
 
     const carrierOptions = [
         { label: "Select Carrier", value: "" },
@@ -363,9 +380,88 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
                     </BlockStack>
                 )}
 
-                {/* STEP 3: Shipping address */}
+                {/* STEP 3: Shipping address & Addons */}
                 {!loading && step === 3 && (
                     <BlockStack gap="400">
+                        <BlockStack gap="400">
+                            <Text variant="headingMd" as="h3">Free Add-ons</Text>
+                            {addons && addons.length > 0 ? (
+                                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                                    <BlockStack gap="400">
+                                        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+                                            <div style={{ flex: 1 }}>
+                                                <Select
+                                                    label="Select Add-on to Include"
+                                                    options={[{ label: "Choose an add-on...", value: "" }, ...addons.filter(a => !selectedAddons.find(sa => sa.id === a.id.toString())).map(a => ({ label: `${a.name} (${a.stock} left)`, value: a.id.toString() }))]}
+                                                    value={selectedAddonId}
+                                                    onChange={setSelectedAddonId}
+                                                />
+                                            </div>
+                                            <Button
+                                                onClick={() => {
+                                                    const addon = addons.find(a => a.id.toString() === selectedAddonId);
+                                                    if (addon) {
+                                                        setSelectedAddons([...selectedAddons, { id: addon.id.toString(), name: addon.name, quantity: 1, maxStock: addon.stock }]);
+                                                        setSelectedAddonId("");
+                                                    }
+                                                }}
+                                                disabled={!selectedAddonId}
+                                            >
+                                                Add Item
+                                            </Button>
+                                        </div>
+
+                                        {selectedAddons.length > 0 && (
+                                            <BlockStack gap="300">
+                                                <Divider />
+                                                <Text variant="headingSm" as="h4">Included Add-ons</Text>
+                                                {selectedAddons.map((item, index) => (
+                                                    <Box key={item.id} padding="200" background="bg-surface" borderRadius="200" borderWidth="025" borderColor="border">
+                                                        <InlineStack gap="300" align="space-between" blockAlign="center">
+                                                            <Text as="span" variant="bodyMd" fontWeight="semibold">{item.name}</Text>
+                                                            <InlineStack gap="300" blockAlign="center">
+                                                                <Text tone="subdued" as="span">Max: {item.maxStock}</Text>
+                                                                <div style={{ width: '100px' }}>
+                                                                    <TextField
+                                                                        type="number"
+                                                                        min={1}
+                                                                        max={item.maxStock}
+                                                                        value={item.quantity.toString()}
+                                                                        onChange={(val) => {
+                                                                            let newQty = parseInt(val, 10);
+                                                                            if (isNaN(newQty) || newQty < 1) newQty = 1;
+                                                                            if (newQty > item.maxStock) newQty = item.maxStock;
+
+                                                                            const newAddons = [...selectedAddons];
+                                                                            newAddons[index].quantity = newQty;
+                                                                            setSelectedAddons(newAddons);
+                                                                        }}
+                                                                        autoComplete="off"
+                                                                        label="Qty"
+                                                                        labelHidden
+                                                                        prefix="Qty"
+                                                                    />
+                                                                </div>
+                                                                <Button 
+                                                                    icon={DeleteIcon} 
+                                                                    tone="critical" 
+                                                                    variant="plain" 
+                                                                    accessibilityLabel="Remove"
+                                                                    onClick={() => setSelectedAddons(selectedAddons.filter(a => a.id !== item.id))} 
+                                                                />
+                                                            </InlineStack>
+                                                        </InlineStack>
+                                                    </Box>
+                                                ))}
+                                            </BlockStack>
+                                        )}
+                                    </BlockStack>
+                                </Box>
+                            ) : (
+                                <Text tone="subdued" as="p">No active add-ons available. (Addons passed: {addons ? addons.length : 0})</Text>
+                            )}
+                            <Box paddingBlockEnd="200"><Divider /></Box>
+                        </BlockStack>
                         <Text variant="headingMd" as="h3">Shipping Address (Editable)</Text>
                         <FormLayout>
                             <TextField label="Address 1" value={shippingAddress.address1} onChange={(v) => setShippingAddress(p => ({ ...p, address1: v }))} autoComplete="off" />
@@ -428,8 +524,22 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
 
                         {labelPrinted && (
                             <Banner tone="success">
-                                Shipping label has been sent to the print dialog. Click "Print Again" if needed.
+                                <p>The shipping label has been generated and sent to your printer.</p>
                             </Banner>
+                        )}
+
+                        {!labelLoading && (
+                            <InlineStack gap="300" align="center">
+                                <Button onClick={handlePrintAgain} icon={DeliveryIcon}>
+                                    Print Label Again
+                                </Button>
+                                <Button onClick={handlePrintInvoice} icon={ReceiptIcon}>
+                                    Print Invoice
+                                </Button>
+                                <Button variant="primary" onClick={onClose}>
+                                    Done
+                                </Button>
+                            </InlineStack>
                         )}
 
                         {!labelLoading && !labelData && !labelPrinted && (

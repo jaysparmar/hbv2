@@ -17,7 +17,7 @@ const PRINT_SETTING_KEYS = [
     "invoice_footer", "invoice_terms",
     "invoice_from_address1", "invoice_from_address2",
     "invoice_from_city", "invoice_from_province", "invoice_from_zip",
-    "invoice_from_phone", "invoice_from_email",
+    "invoice_from_phone", "invoice_from_email", "invoice_signature",
 ];
 
 async function getPrintSettings() {
@@ -38,7 +38,7 @@ export const action = async ({ request }) => {
         const orderId = formData.get("orderId");
         const orderGid = orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`;
 
-        const [orderResponse, shopResponse, printSettings] = await Promise.all([
+        const [orderResponse, shopResponse, printSettings, parcels] = await Promise.all([
             admin.graphql(
                 `#graphql
                 query getOrderForLabel($id: ID!) {
@@ -81,6 +81,10 @@ export const action = async ({ request }) => {
                 }
             `),
             getPrintSettings(),
+            prisma.parcel.findMany({
+                where: { orderId: orderGid },
+                include: { addons: { include: { addon: true } } }
+            })
         ]);
 
         const orderResult = await orderResponse.json();
@@ -91,6 +95,7 @@ export const action = async ({ request }) => {
             order: orderResult.data?.order,
             shop: shopResult.data?.shop,
             printSettings,
+            parcels,
         });
     }
 

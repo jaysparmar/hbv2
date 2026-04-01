@@ -45,6 +45,9 @@ export const loader = async ({ request }) => {
             orderBy: { createdAt: "desc" },
             skip: (page - 1) * PARCELS_PER_PAGE,
             take: PARCELS_PER_PAGE,
+            include: {
+                addons: { include: { addon: true } }
+            }
         }),
         prisma.parcel.count({ where }),
     ]);
@@ -143,10 +146,12 @@ export default function ParcelsMaster() {
         if (labelFetcher.state !== "idle" || !labelFetcher.data) return;
         if (labelFetcher.data.intent === "getLabelData" && printingParcel) {
             if (labelFetcher.data.order && labelFetcher.data.shop) {
+                const fullParcel = labelFetcher.data.parcels?.find(p => p.id === printingParcel.id) || printingParcel;
                 printLabel({
                     order: labelFetcher.data.order,
                     shop: labelFetcher.data.shop,
-                    parcel: printingParcel,
+                    parcel: fullParcel,
+                    printSettings: labelFetcher.data.printSettings,
                 });
             }
             setPrintingParcelId(null);
@@ -170,11 +175,16 @@ export default function ParcelsMaster() {
         if (invoiceFetcher.state !== "idle" || !invoiceFetcher.data) return;
         if (invoiceFetcher.data.intent === "getLabelData" && invoiceParcelId) {
             if (invoiceFetcher.data.order && invoiceFetcher.data.shop) {
-                printInvoice({ order: invoiceFetcher.data.order, shop: invoiceFetcher.data.shop });
+                printInvoice({ 
+                    order: invoiceFetcher.data.order, 
+                    shop: invoiceFetcher.data.shop, 
+                    printSettings: invoiceFetcher.data.printSettings,
+                    parcels: invoiceFetcher.data.parcels || [parcels.find(p => p.id === invoiceParcelId)]
+                });
             }
             setInvoiceParcelId(null);
         }
-    }, [invoiceFetcher.state, invoiceFetcher.data, invoiceParcelId]);
+    }, [invoiceFetcher.state, invoiceFetcher.data, invoiceParcelId, parcels]);
 
     useEffect(() => {
         setQueryValue(q);

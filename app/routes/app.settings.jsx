@@ -13,7 +13,7 @@ import {
   Divider,
   Badge,
 } from "@shopify/polaris";
-import { EmailNewsletterIcon, CreditCardIcon, ChevronRightIcon, PersonIcon, FileIcon } from "@shopify/polaris-icons";
+import { EmailNewsletterIcon, CreditCardIcon, ChevronRightIcon, PersonIcon, FileIcon, ProductIcon } from "@shopify/polaris-icons";
 
 export const loader = async ({ request }) => {
   await authenticate.admin(request);
@@ -63,6 +63,13 @@ export default function SettingsPage() {
       icon: FileIcon,
       title: "Print Settings",
       description: "Configure shipping label and invoice templates.",
+      configured: true,
+    },
+    {
+      to: "/app/settings/addons",
+      icon: ProductIcon,
+      title: "Add-ons",
+      description: "Manage free add-on products and stock.",
       configured: true,
     },
   ];

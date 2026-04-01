@@ -1,6 +1,6 @@
 import { useLoaderData, useSubmit, useNavigation, useActionData } from "@remix-run/react";
 import {
-    Page, Layout, Card, BlockStack, Text, FormLayout, TextField, Banner, Divider,
+    Page, Layout, Card, BlockStack, Text, FormLayout, TextField, Banner, Divider, DropZone, Thumbnail, Button
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -32,6 +32,7 @@ const KEYS = {
     invoice_from_zip: "invoice_from_zip",
     invoice_from_phone: "invoice_from_phone",
     invoice_from_email: "invoice_from_email",
+    invoice_signature: "invoice_signature",
 };
 
 async function getSetting(key) {
@@ -102,6 +103,7 @@ export default function PrintSettingsPage() {
     const [invoiceFromZip, setInvoiceFromZip] = useState(data.invoice_from_zip);
     const [invoiceFromPhone, setInvoiceFromPhone] = useState(data.invoice_from_phone);
     const [invoiceFromEmail, setInvoiceFromEmail] = useState(data.invoice_from_email);
+    const [invoiceSignature, setInvoiceSignature] = useState(data.invoice_signature);
 
     const [showBanner, setShowBanner] = useState(false);
 
@@ -129,6 +131,7 @@ export default function PrintSettingsPage() {
         setInvoiceFromZip(data.invoice_from_zip);
         setInvoiceFromPhone(data.invoice_from_phone);
         setInvoiceFromEmail(data.invoice_from_email);
+        setInvoiceSignature(data.invoice_signature);
     }, [data]);
 
     useEffect(() => {
@@ -165,6 +168,7 @@ export default function PrintSettingsPage() {
                 invoice_from_zip: invoiceFromZip,
                 invoice_from_phone: invoiceFromPhone,
                 invoice_from_email: invoiceFromEmail,
+                invoice_signature: invoiceSignature,
             },
             { method: "post" }
         );
@@ -172,9 +176,23 @@ export default function PrintSettingsPage() {
         labelHeader, labelBnplLine1, labelBnplLine2, labelBillerId,
         labelFromName, labelFromAddr1, labelFromAddr2, labelFromCity, labelFromProvince, labelFromZip, labelFromPhone,
         invoiceCompanyName, invoiceTitle, invoiceGstin, invoiceFooter, invoiceTerms,
-        invoiceFromAddr1, invoiceFromAddr2, invoiceFromCity, invoiceFromProvince, invoiceFromZip, invoiceFromPhone, invoiceFromEmail,
+        invoiceFromAddr1, invoiceFromAddr2, invoiceFromCity, invoiceFromProvince, invoiceFromZip, invoiceFromPhone, invoiceFromEmail, invoiceSignature,
         submit,
     ]);
+
+    const handleDrop = useCallback(
+        (_dropFiles, acceptedFiles, _rejectedFiles) => {
+            const file = acceptedFiles[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    setInvoiceSignature(reader.result);
+                };
+                reader.readAsDataURL(file);
+            }
+        },
+        [],
+    );
 
     return (
         <Page
@@ -323,6 +341,24 @@ export default function PrintSettingsPage() {
                                     autoComplete="off"
                                     helpText="Shown at the bottom of the invoice. Supports multiple lines."
                                 />
+                                <BlockStack gap="200">
+                                    <Text variant="headingSm" as="h3">Authorized Signature</Text>
+                                    <Text tone="subdued" as="p">Recommended dimensions: 200 x 80 pixels. Format: PNG.</Text>
+                                    {invoiceSignature ? (
+                                        <Card background="bg-surface-secondary">
+                                            <BlockStack gap="400" inlineAlign="center">
+                                                <img src={invoiceSignature} alt="Uploaded signature" style={{ maxHeight: '100px', maxWidth: '300px', objectFit: 'contain' }} />
+                                                <Button tone="critical" onClick={() => setInvoiceSignature("")}>
+                                                    Remove Signature
+                                                </Button>
+                                            </BlockStack>
+                                        </Card>
+                                    ) : (
+                                        <DropZone accept="image/png, image/jpeg" type="image" onDrop={handleDrop} allowMultiple={false}>
+                                            <DropZone.FileUpload actionHint="Accepts .png and .jpg" />
+                                        </DropZone>
+                                    )}
+                                </BlockStack>
                             </FormLayout>
                         </BlockStack>
                     </Card>
