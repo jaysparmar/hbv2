@@ -74,7 +74,7 @@ export function generateInvoiceHtml({ order, shop, printSettings = {}, parcels =
 
     // ─── GST Calculation (tax-inclusive) ───
     const customerInGujarat = isGujarat(addr.province);
-    const gstRate = customerInGujarat ? 0.05 : 0.18; // 5% intra-state, 18% inter-state
+    const gstRate = 0.05; // 5% flat GST rate (intra: SGST/CGST, inter: IGST)
     const taxableAmount = totalAmount / (1 + gstRate);
     const totalGst = totalAmount - taxableAmount;
 
@@ -85,7 +85,7 @@ export function generateInvoiceHtml({ order, shop, printSettings = {}, parcels =
         gstAmt1 = taxableAmount * 0.025;
         gstAmt2 = taxableAmount * 0.025;
     } else {
-        gstLabel1 = "IGST @ 18%";
+        gstLabel1 = "IGST @ 5%";
         gstLabel2 = null;
         gstAmt1 = totalGst;
         gstAmt2 = 0;

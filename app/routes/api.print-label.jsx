@@ -36,64 +36,140 @@ export const action = async ({ request }) => {
 
     if (intent === "getLabelData") {
         const orderId = formData.get("orderId");
-        const orderGid = orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`;
+        
+        let orderResultData = null;
+        let shopResultData = null;
+        let printSettings = null;
+        let parcels = [];
 
-        const [orderResponse, shopResponse, printSettings, parcels] = await Promise.all([
-            admin.graphql(
-                `#graphql
-                query getOrderForLabel($id: ID!) {
-                    order(id: $id) {
-                        id
-                        name
-                        createdAt
-                        displayFinancialStatus
-                        customer {
-                            firstName lastName
-                            defaultEmailAddress { emailAddress }
-                            defaultPhoneNumber { phoneNumber }
-                        }
-                        shippingAddress {
-                            address1 address2 city province zip country phone
-                        }
-                        lineItems(first: 50) {
-                            edges {
-                                node {
-                                    title
-                                    quantity
-                                    originalTotalSet { shopMoney { amount currencyCode } }
-                                }
+        if (orderId.startsWith("custom-")) {
+            const customId = parseInt(orderId.replace("custom-", ""), 10);
+            
+            const [localOrder, shopResponse, rawSettings, localParcels] = await Promise.all([
+                prisma.customOrder.findUnique({ where: { id: customId } }),
+                admin.graphql(`#graphql
+                    query {
+                        shop {
+                            name
+                            billingAddress {
+                                address1 address2 city province zip country phone
                             }
                         }
-                        totalPriceSet { shopMoney { amount currencyCode } }
-                        totalOutstandingSet { shopMoney { amount currencyCode } }
                     }
-                }`,
-                { variables: { id: orderGid } }
-            ),
-            admin.graphql(`#graphql
-                query {
-                    shop {
-                        name
-                        billingAddress {
-                            address1 address2 city province zip country phone
+                `),
+                getPrintSettings(),
+                prisma.parcel.findMany({
+                    where: { orderId: orderId },
+                    include: { addons: { include: { addon: true } } }
+                })
+            ]);
+            
+            shopResultData = (await shopResponse.json())?.data?.shop;
+            printSettings = rawSettings;
+            parcels = localParcels;
+
+            if (localOrder) {
+                const parts = (localOrder.customerName || "").split(" ");
+                const firstName = parts[0] || "";
+                const lastName = parts.slice(1).join(" ") || "";
+                
+                const items = localOrder.items ? JSON.parse(localOrder.items) : [];
+                
+                orderResultData = {
+                    id: `custom-${localOrder.id}`,
+                    name: localOrder.orderName,
+                    createdAt: localOrder.createdAt,
+                    displayFinancialStatus: localOrder.paymentStatus === "FULLY PAID" ? "PAID" : (localOrder.paymentStatus === "PARTIALLY PAID" ? "PARTIALLY_PAID" : "PENDING"),
+                    customer: {
+                        firstName, lastName,
+                        defaultEmailAddress: localOrder.customerEmail ? { emailAddress: localOrder.customerEmail } : null,
+                        defaultPhoneNumber: localOrder.customerPhone ? { phoneNumber: localOrder.customerPhone } : null
+                    },
+                    shippingAddress: {
+                        address1: localOrder.address1,
+                        address2: localOrder.address2,
+                        city: localOrder.city,
+                        province: localOrder.province,
+                        zip: localOrder.zip,
+                        country: localOrder.country,
+                        phone: localOrder.phone
+                    },
+                    lineItems: {
+                        edges: items.map(item => ({
+                            node: {
+                                title: item.title,
+                                quantity: item.quantity,
+                                originalTotalSet: { shopMoney: { amount: (item.price * item.quantity).toFixed(2), currencyCode: "INR" } }
+                            }
+                        }))
+                    },
+                    totalPriceSet: { shopMoney: { amount: localOrder.totalAmount.toFixed(2), currencyCode: "INR" } },
+                    totalOutstandingSet: { shopMoney: { amount: localOrder.paymentStatus === "FULLY PAID" ? "0.00" : Math.max(0, localOrder.totalAmount - (localOrder.partialPaymentAmount || 0)).toFixed(2), currencyCode: "INR" } }
+                };
+            }
+        } else {
+            const orderGid = orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`;
+            const [orderResponse, shopResponse, rawSettings, localParcels] = await Promise.all([
+                admin.graphql(
+                    `#graphql
+                    query getOrderForLabel($id: ID!) {
+                        order(id: $id) {
+                            id
+                            name
+                            createdAt
+                            displayFinancialStatus
+                            customer {
+                                firstName lastName
+                                defaultEmailAddress { emailAddress }
+                                defaultPhoneNumber { phoneNumber }
+                            }
+                            shippingAddress {
+                                address1 address2 city province zip country phone
+                            }
+                            lineItems(first: 50) {
+                                edges {
+                                    node {
+                                        title
+                                        quantity
+                                        originalTotalSet { shopMoney { amount currencyCode } }
+                                    }
+                                }
+                            }
+                            totalPriceSet { shopMoney { amount currencyCode } }
+                            totalOutstandingSet { shopMoney { amount currencyCode } }
+                        }
+                    }`,
+                    { variables: { id: orderGid } }
+                ),
+                admin.graphql(`#graphql
+                    query {
+                        shop {
+                            name
+                            billingAddress {
+                                address1 address2 city province zip country phone
+                            }
                         }
                     }
-                }
-            `),
-            getPrintSettings(),
-            prisma.parcel.findMany({
-                where: { orderId: orderGid },
-                include: { addons: { include: { addon: true } } }
-            })
-        ]);
+                `),
+                getPrintSettings(),
+                prisma.parcel.findMany({
+                    where: { orderId: orderGid },
+                    include: { addons: { include: { addon: true } } }
+                })
+            ]);
 
-        const orderResult = await orderResponse.json();
-        const shopResult = await shopResponse.json();
+            const orderResult = await orderResponse.json();
+            const shopResult = await shopResponse.json();
+            orderResultData = orderResult.data?.order;
+            shopResultData = shopResult.data?.shop;
+            printSettings = rawSettings;
+            parcels = localParcels;
+        }
 
         return json({
             intent: "getLabelData",
-            order: orderResult.data?.order,
-            shop: shopResult.data?.shop,
+            order: orderResultData,
+            shop: shopResultData,
             printSettings,
             parcels,
         });

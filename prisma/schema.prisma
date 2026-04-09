@@ -128,3 +128,47 @@ model ParcelAddon {
 
   @@unique([parcelId, addonId])
 }
+
+model CustomOrder {
+  id                Int      @id @default(autoincrement())
+  orderName         String   @unique
+  customerName      String?
+  customerEmail     String?
+  customerPhone     String?
+  address1          String?
+  address2          String?
+  city              String?
+  province          String?
+  zip               String?
+  country           String   @default("IN")
+  phone             String?
+  totalAmount       Float    @default(0)
+  items             String?  // JSON text: [{variantId, productId, title, quantity, price}]
+  paymentStatus     String   @default("UNPAID") // UNPAID, PARTIALLY PAID, FULLY PAID
+  fulfillmentStatus String   @default("UNFULFILLED") // UNFULFILLED, FULFILLED
+  partialPaymentAmount Float? @default(0)
+  discountType      String?   // "fixed" or "percent"
+  discountValue     Float?    @default(0)
+  orderType         String    @default("Standard")
+  partialPaymentLink   String?
+  remainingPaymentLink String?
+  fullPaymentLink      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model TransactionHistory {
+  id              Int      @id @default(autoincrement())
+  orderName       String
+  amountPaid      Float
+  currency        String   @default("INR")
+  paymentLinkId   String?
+  paymentId       String?
+  status          String   @default("SUCCESS") // SUCCESS, PENDING
+  mode            String   @default("Razorpay") // Razorpay or Manual
+  documentUrl     String?  // for manual uploads
+  createdAt       DateTime @default(now())
+
+  @@index([orderName])
+}
+

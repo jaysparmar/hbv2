@@ -72,37 +72,43 @@ export const action = async ({ request }) => {
         } else if (parcel.dispatchmentId !== null) {
             errors = [{ message: "Cannot delete: this parcel is linked to a dispatch. Remove it from the dispatch first." }];
         } else {
-            // Cancel the Shopify fulfillment
-            const cancelResponse = await admin.graphql(
-                `#graphql
-        mutation fulfillmentCancel($id: ID!) {
-          fulfillmentCancel(id: $id) {
-            fulfillment {
-              id
-              status
-            }
-            userErrors {
-              field
-              message
-            }
-          }
-        }`,
-                { variables: { id: parcel.fulfillmentId } }
-            );
-            const cancelResult = await cancelResponse.json();
-            const cancelErrors = cancelResult.data?.fulfillmentCancel?.userErrors;
-            if (cancelErrors && cancelErrors.length > 0) {
-                const realErrors = cancelErrors.filter(
-                    (e) => !e.message.toLowerCase().includes("already cancelled") &&
-                        !e.message.toLowerCase().includes("cannot cancel")
-                );
-                if (realErrors.length > 0) {
-                    errors = realErrors;
-                }
-            }
-            if (errors.length === 0) {
+            if (parcel.fulfillmentId === "custom") {
+                // Local custom order parcel
                 await prisma.parcel.delete({ where: { id: parcelId } });
                 return json({ errors, deleted: true });
+            } else {
+                // Cancel the Shopify fulfillment
+                const cancelResponse = await admin.graphql(
+                    `#graphql
+            mutation fulfillmentCancel($id: ID!) {
+              fulfillmentCancel(id: $id) {
+                fulfillment {
+                  id
+                  status
+                }
+                userErrors {
+                  field
+                  message
+                }
+              }
+            }`,
+                    { variables: { id: parcel.fulfillmentId } }
+                );
+                const cancelResult = await cancelResponse.json();
+                const cancelErrors = cancelResult.data?.fulfillmentCancel?.userErrors;
+                if (cancelErrors && cancelErrors.length > 0) {
+                    const realErrors = cancelErrors.filter(
+                        (e) => !e.message.toLowerCase().includes("already cancelled") &&
+                            !e.message.toLowerCase().includes("cannot cancel")
+                    );
+                    if (realErrors.length > 0) {
+                        errors = realErrors;
+                    }
+                }
+                if (errors.length === 0) {
+                    await prisma.parcel.delete({ where: { id: parcelId } });
+                    return json({ errors, deleted: true });
+                }
             }
         }
     }
@@ -303,7 +309,7 @@ export default function ParcelsMaster() {
     const rowMarkup = parcels.map((parcel, index) => (
         <IndexTable.Row id={parcel.id.toString()} key={parcel.id} position={index}>
             <IndexTable.Cell>
-                <Link url={`/app/orders/${parcel.orderId.split("/").pop()}`}>
+                <Link url={parcel.orderId.startsWith("custom-") ? `/app/custom-orders/${parcel.orderId.replace("custom-", "")}` : `/app/orders/${parcel.orderId.split("/").pop()}`}>
                     {parcel.orderName || parcel.orderId.split("/").pop()}
                 </Link>
             </IndexTable.Cell>
