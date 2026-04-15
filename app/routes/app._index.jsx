@@ -94,8 +94,8 @@ export const loader = async ({ request }) => {
   const carriers = await prisma.carrier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } });
   const packages = await prisma.package.findMany({ orderBy: { name: "asc" } });
   const addons = await prisma.addonProduct.findMany({
-      where: { isActive: true, stock: { gt: 0 } },
-      orderBy: { name: "asc" },
+    where: { isActive: true, stock: { gt: 0 } },
+    orderBy: { name: "asc" },
   });
 
   return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons };
@@ -621,11 +621,11 @@ export default function Index() {
     <Page
       fullWidth
       title="Orders"
-      primaryAction={
-        <Button variant="primary" onClick={() => setShowCreateModal(true)}>
-          Create order
-        </Button>
-      }
+    // primaryAction={
+    //   <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+    //     Create order
+    //   </Button>
+    // }
     >
       <Layout>
         <Layout.Section>

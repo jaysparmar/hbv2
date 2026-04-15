@@ -90,7 +90,7 @@ model Dispatchment {
 model Setting {
   id        Int      @id @default(autoincrement())
   key       String   @unique
-  value     String   @default("")
+  value     String   @db.LongText
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
