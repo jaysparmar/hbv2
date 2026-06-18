@@ -51,6 +51,7 @@ model Carrier {
   trackingUrl   String
   isActive      Boolean        @default(true)
   dispatchments Dispatchment[]
+  deliveries    Delivery[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -179,5 +180,31 @@ model Invoice {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+model Delivery {
+  id               Int       @id @default(autoincrement())
+  carrierId        Int
+  carrier          Carrier   @relation(fields: [carrierId], references: [id], onDelete: Cascade)
+  articleNumber    String
+  articleCount     Int       @default(1)
+  codInvoiceNumber String?
+  deliveredDate    DateTime?
+  codValue         Float     @default(0)
+  codCommission    Float     @default(0)
+  officeId         String?
+  officeName       String?
+  customerId       String?
+  customerName     String?
+  billDate         DateTime?
+  contractId       String?
+  contractMode     String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([carrierId, articleNumber])
+  @@index([carrierId])
+  @@index([articleNumber])
+}
+
 
 

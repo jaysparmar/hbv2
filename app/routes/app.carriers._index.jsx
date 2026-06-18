@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { json } from "@remix-run/node";
-import { useLoaderData, useSubmit, useActionData, useNavigation, useSearchParams } from "@remix-run/react";
+import { useLoaderData, useSubmit, useActionData, useNavigation, useSearchParams, useNavigate } from "@remix-run/react";
 import { Page, Layout, Card, IndexTable, Text, Button, Modal, TextField, BlockStack, InlineStack, Checkbox, Badge, IndexFilters, useSetIndexFiltersMode, useIndexResourceState, ChoiceList } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -82,6 +82,7 @@ export default function CarrierMaster() {
     const { carriers, q, statusParam } = useLoaderData();
     const submit = useSubmit();
     const navigation = useNavigation();
+    const navigate = useNavigate();
 
     const isLoading = navigation.state === "loading";
 
@@ -228,6 +229,7 @@ export default function CarrierMaster() {
             </IndexTable.Cell>
             <IndexTable.Cell>
                 <InlineStack gap="200">
+                    <Button size="micro" onClick={() => navigate(`/app/carriers/${carrier.id}/deliveries`)}>View Deliveries</Button>
                     <Button size="micro" onClick={() => handleEdit(carrier)}>Edit</Button>
                     <Button size="micro" tone="critical" onClick={() => handleDelete(carrier.id)}>Delete</Button>
                 </InlineStack>

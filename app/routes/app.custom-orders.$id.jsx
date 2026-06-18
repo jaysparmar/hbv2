@@ -1,7 +1,7 @@
 import { json, unstable_composeUploadHandlers, unstable_createFileUploadHandler, unstable_createMemoryUploadHandler, unstable_parseMultipartFormData } from "@remix-run/node";
 import { useLoaderData, useNavigate, useSubmit, useNavigation, useFetcher, useSearchParams } from "@remix-run/react";
 import {
-  Page, Layout, Card, Text, Button, BlockStack, InlineStack, Badge, 
+  Page, Layout, Card, Text, Button, BlockStack, InlineStack, Badge,
   Divider, Box, Modal, FormLayout, Select, TextField, Banner, List, Icon, Spinner
 } from "@shopify/polaris";
 import { DeliveryIcon, ReceiptIcon, CheckCircleIcon, DeleteIcon, LinkIcon } from "@shopify/polaris-icons";
@@ -36,7 +36,7 @@ export const loader = async ({ request, params }) => {
 // --- ACTION ---
 export const action = async ({ request, params }) => {
   await authenticate.admin(request);
-  
+
   const contentType = request.headers.get("content-type") || "";
   let formData;
   if (contentType.includes("multipart/form-data")) {
@@ -216,7 +216,7 @@ export const action = async ({ request, params }) => {
 
     return json({ success: true, parcel });
   }
-  
+
   if (intent === "delete") {
     await prisma.customOrder.delete({ where: { id: orderId } });
     return json({ success: true });
@@ -235,7 +235,7 @@ export default function CustomOrderDetail() {
 
   const [fulfillWizardOpen, setFulfillWizardOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  
+
   // Add Payment Modal State
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
   const [paymentType, setPaymentType] = useState("full");
@@ -244,7 +244,7 @@ export default function CustomOrderDetail() {
   const [paymentPhone, setPaymentPhone] = useState(order.customerPhone || "");
   const [paymentEmail, setPaymentEmail] = useState(order.customerEmail || "");
   const [paymentFile, setPaymentFile] = useState(null);
-  
+
   const remainingDue = Math.max(0, order.totalAmount - (order.partialPaymentAmount || 0));
   const totalCODCollected = parcels.reduce((sum, p) => {
     const val = parseFloat(p.valueOfRepayment);
@@ -295,7 +295,7 @@ export default function CustomOrderDetail() {
   // Print label status
   const labelFetcher = useFetcher();
   const [printingParcelId, setPrintingParcelId] = useState(null);
-  
+
   const handlePrintLabel = useCallback((parcel) => {
     setPrintingParcelId(parcel.id);
     const fd = new FormData();
@@ -310,10 +310,10 @@ export default function CustomOrderDetail() {
       if (labelFetcher.data.order && labelFetcher.data.shop) {
         const fullParcel = labelFetcher.data.parcels?.find(p => p.id === printingParcelId);
         printLabel({
-            order: labelFetcher.data.order,
-            shop: labelFetcher.data.shop,
-            parcel: fullParcel,
-            printSettings: labelFetcher.data.printSettings,
+          order: labelFetcher.data.order,
+          shop: labelFetcher.data.shop,
+          parcel: fullParcel,
+          printSettings: labelFetcher.data.printSettings,
         });
       }
       setPrintingParcelId(null);
@@ -372,7 +372,7 @@ export default function CustomOrderDetail() {
                 <Text variant="headingMd" as="h2">Products</Text>
                 <BlockStack gap="200">
                   {items.map((item, i) => (
-                    <Box key={i} paddingBlockEnd="200" borderBlockEnd={i < items.length-1 ? "025" : undefined} borderColor="border">
+                    <Box key={i} paddingBlockEnd="200" borderBlockEndWidth={i < items.length - 1 ? "025" : undefined} borderColor="border">
                       <InlineStack align="space-between">
                         <Text as="span" fontWeight="semibold">{item.quantity} x {item.title}</Text>
                         <Text as="span">₹{(item.price * item.quantity).toFixed(2)}</Text>
@@ -435,10 +435,10 @@ export default function CustomOrderDetail() {
 
                           {txn.status === "SUCCESS" && (
                             <InlineStack gap="300" blockAlign="center">
-                               {txn.mode === "Manual" && txn.documentUrl && (
-                                 <a href={txn.documentUrl} target="_blank" rel="noreferrer" style={{ fontSize: "13px", color: "blue" }}>View Reference Doc</a>
-                               )}
-                               <Button variant="plain" size="micro" icon={ReceiptIcon} onClick={() => window.open(`/api/print-receipt?txId=${txn.id}`, '_blank')}>Print Receipt</Button>
+                              {txn.mode === "Manual" && txn.documentUrl && (
+                                <a href={txn.documentUrl} target="_blank" rel="noreferrer" style={{ fontSize: "13px", color: "blue" }}>View Reference Doc</a>
+                              )}
+                              <Button variant="plain" size="micro" icon={ReceiptIcon} onClick={() => window.open(`/api/print-receipt?txId=${txn.id}`, '_blank')}>Print Receipt</Button>
                             </InlineStack>
                           )}
                         </BlockStack>
@@ -469,10 +469,10 @@ export default function CustomOrderDetail() {
                           <Text as="span">{parcel.length}x{parcel.width}x{parcel.height} · {parcel.weight}kg</Text>
                         </InlineStack>
                         {parcel.dispatchmentId && (
-                           <InlineStack align="space-between">
-                             <Text as="span">Dispatchment ID</Text>
-                             <Text as="span">#{parcel.dispatchmentId}</Text>
-                           </InlineStack>
+                          <InlineStack align="space-between">
+                            <Text as="span">Dispatchment ID</Text>
+                            <Text as="span">#{parcel.dispatchmentId}</Text>
+                          </InlineStack>
                         )}
                         <Box paddingBlockStart="200">
                           <Button size="micro" icon={DeliveryIcon} onClick={() => handlePrintLabel(parcel)} loading={printingParcelId === parcel.id}>
@@ -497,14 +497,14 @@ export default function CustomOrderDetail() {
               {order.customerPhone && <Text as="p">{order.customerPhone}</Text>}
             </BlockStack>
           </Card>
-          
+
           <Box paddingBlockStart="400">
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">Shipping Address</Text>
                 <Text as="p">
-                  {order.address1}{order.address2 ? `, ${order.address2}` : ""}<br/>
-                  {order.city}{order.province ? `, ${order.province}` : ""}<br/>
+                  {order.address1}{order.address2 ? `, ${order.address2}` : ""}<br />
+                  {order.city}{order.province ? `, ${order.province}` : ""}<br />
                   {order.zip} {order.country}
                 </Text>
               </BlockStack>
@@ -530,8 +530,8 @@ export default function CustomOrderDetail() {
           {addPaymentFetcher.data?.error && <Banner tone="critical"><p>{addPaymentFetcher.data.error}</p></Banner>}
           <BlockStack gap="400">
             <FormLayout>
-              <Select 
-                label="Payment Amount" 
+              <Select
+                label="Payment Amount"
                 options={[
                   { label: `Full Remaining Balance (₹${remainingDue.toFixed(2)})`, value: "full" },
                   { label: "Partial Payment", value: "partial" }
@@ -540,20 +540,20 @@ export default function CustomOrderDetail() {
                 onChange={setPaymentType}
               />
               {paymentType === "partial" && (
-                <TextField 
-                  label="Amount (₹)" 
-                  type="number" 
-                  value={paymentAmount} 
+                <TextField
+                  label="Amount (₹)"
+                  type="number"
+                  value={paymentAmount}
                   onChange={setPaymentAmount}
-                  autoComplete="off" 
-                  min={1} 
-                  max={remainingDue} 
+                  autoComplete="off"
+                  min={1}
+                  max={remainingDue}
                   helpText={`Amount should not exceed ₹${remainingDue.toFixed(2)}`}
                 />
               )}
 
-              <Select 
-                label="Payment Mode" 
+              <Select
+                label="Payment Mode"
                 options={[
                   { label: "Razorpay (Generate Link)", value: "Razorpay" },
                   { label: "Manual (Bank Transfer / Cash)", value: "Manual" }
@@ -581,8 +581,8 @@ export default function CustomOrderDetail() {
       </Modal>
 
       {/* Local Fulfillment Wizard */}
-      <CustomFulfillmentWizard 
-        open={fulfillWizardOpen} 
+      <CustomFulfillmentWizard
+        open={fulfillWizardOpen}
         onClose={() => setFulfillWizardOpen(false)}
         carriers={carriers}
         packages={packages}
@@ -760,7 +760,7 @@ function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, or
                 <TextField label="Height (cm)" type="number" value={parcelHeight} onChange={setParcelHeight} autoComplete="off" disabled={selectedPackage !== "custom" && selectedPackage !== ""} />
                 <TextField label="Weight (kg)" type="number" value={parcelWeight} onChange={setParcelWeight} autoComplete="off" disabled={selectedPackage !== "custom" && selectedPackage !== ""} />
               </FormLayout.Group>
-              <TextField label="Value Of Repayment" type="number" value={parcelVOR} onChange={setParcelVOR} autoComplete="off" error={vorError} />
+              <TextField label="COD amount" type="number" value={parcelVOR} onChange={setParcelVOR} autoComplete="off" error={vorError} />
             </FormLayout>
           </BlockStack>
         )}
