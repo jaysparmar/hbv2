@@ -246,6 +246,11 @@ export default function CustomOrderDetail() {
   const [paymentFile, setPaymentFile] = useState(null);
   
   const remainingDue = Math.max(0, order.totalAmount - (order.partialPaymentAmount || 0));
+  const totalCODCollected = parcels.reduce((sum, p) => {
+    const val = parseFloat(p.valueOfRepayment);
+    return sum + (isNaN(val) ? 0 : val);
+  }, 0);
+  const remainingCOD = Math.max(0, remainingDue - totalCODCollected);
 
   useEffect(() => {
     if (addPaymentOpen && paymentType === "full") {
@@ -583,6 +588,7 @@ export default function CustomOrderDetail() {
         packages={packages}
         addons={addons}
         orderId={order.id}
+        remainingCOD={remainingCOD}
       />
 
       {/* Delete Confirmation Modal */}
@@ -609,7 +615,7 @@ export default function CustomOrderDetail() {
 }
 
 // --- LOCAL FULFILLMENT WIZARD ---
-function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, orderId }) {
+function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, orderId, remainingCOD = 0 }) {
   const fetcher = useFetcher();
   const labelFetcher = useFetcher();
 
@@ -633,10 +639,11 @@ function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, or
     if (open) {
       setStep(1); setCreatedParcel(null); setLabelPrinted(false);
       setSelectedCarrier(""); setSelectedPackage(""); setAwbNumber("");
-      setParcelLength(""); setParcelWidth(""); setParcelHeight(""); setParcelWeight(""); setParcelVOR("");
+      setParcelLength(""); setParcelWidth(""); setParcelHeight(""); setParcelWeight("");
+      setParcelVOR(remainingCOD.toString());
       setSelectedAddons([]); setSelectedAddonId("");
     }
-  }, [open]);
+  }, [open, remainingCOD]);
 
   useEffect(() => {
     if (fetcher.data?.success && step === 2) {
@@ -669,9 +676,14 @@ function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, or
     if (pkg) {
       setParcelLength(pkg.length.toString()); setParcelWidth(pkg.width.toString());
       setParcelHeight(pkg.height.toString()); setParcelWeight(pkg.weight.toString());
-      setParcelVOR(pkg.valueOfRepayment || "");
+      const pkgVORVal = parseFloat(pkg.valueOfRepayment);
+      if (pkg.valueOfRepayment && !isNaN(pkgVORVal) && pkgVORVal <= remainingCOD) {
+        setParcelVOR(pkg.valueOfRepayment);
+      } else {
+        setParcelVOR(remainingCOD.toString());
+      }
     } else {
-      setParcelLength(""); setParcelWidth(""); setParcelHeight(""); setParcelWeight(""); setParcelVOR("");
+      setParcelLength(""); setParcelWidth(""); setParcelHeight(""); setParcelWeight(""); setParcelVOR(remainingCOD.toString());
     }
   };
 
@@ -701,6 +713,10 @@ function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, or
     }
   };
 
+  const vorNum = parseFloat(parcelVOR);
+  const isVorInvalid = !isNaN(vorNum) && vorNum > remainingCOD;
+  const vorError = isVorInvalid ? `COD amount cannot exceed remaining order amount (₹${remainingCOD})` : "";
+
   let primaryAction;
   if (step === 3) {
     primaryAction = { content: "Done", onAction: onClose };
@@ -709,7 +725,7 @@ function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, or
       content: step === 2 ? "Complete Fulfillment" : "Next",
       onAction: step === 2 ? handleFulfill : () => setStep(s => s + 1),
       loading: fetcher.state === "submitting",
-      disabled: step === 1 && (!awbNumber || !selectedCarrier || !selectedPackage)
+      disabled: step === 1 && (!awbNumber || !selectedCarrier || !selectedPackage || isVorInvalid)
     };
   }
 
@@ -744,7 +760,7 @@ function CustomFulfillmentWizard({ open, onClose, carriers, packages, addons, or
                 <TextField label="Height (cm)" type="number" value={parcelHeight} onChange={setParcelHeight} autoComplete="off" disabled={selectedPackage !== "custom" && selectedPackage !== ""} />
                 <TextField label="Weight (kg)" type="number" value={parcelWeight} onChange={setParcelWeight} autoComplete="off" disabled={selectedPackage !== "custom" && selectedPackage !== ""} />
               </FormLayout.Group>
-              <TextField label="Value Of Repayment" type="text" value={parcelVOR} onChange={setParcelVOR} autoComplete="off" disabled={selectedPackage !== "custom" && selectedPackage !== ""} />
+              <TextField label="Value Of Repayment" type="number" value={parcelVOR} onChange={setParcelVOR} autoComplete="off" error={vorError} />
             </FormLayout>
           </BlockStack>
         )}

@@ -31,8 +31,8 @@ export function numberToWords(num) {
  */
 export function generateLabelHtml({ order, shop, parcel, printSettings = {} }) {
   const s = printSettings;
-  const outstandingAmount = parseFloat(order.totalOutstandingSet?.shopMoney?.amount || 0);
-  const isCOD = outstandingAmount > 0;
+  const codAmount = parcel?.valueOfRepayment ? parseFloat(parcel.valueOfRepayment) : 0;
+  const isCOD = !isNaN(codAmount) && codAmount > 0;
   const currency = order.totalPriceSet.shopMoney.currencyCode;
   const addr = order.shippingAddress || {};
   const cName = order.customer
@@ -107,8 +107,8 @@ td { border: 0.5pt solid #000; padding: 1mm; }
 ${isCOD ? `
 <div class="cod-box">
   <div style="font-weight:bold;font-size:8pt;">COD COLLECT AMOUNT</div>
-  <div class="cod-amount">${fmt(outstandingAmount)}</div>
-  <div class="cod-words">Words: ${numberToWords(outstandingAmount)}</div>
+  <div class="cod-amount">${fmt(codAmount)}</div>
+  <div class="cod-words">Words: ${numberToWords(codAmount)}</div>
 </div>` : ""}
 <div class="row">
   <div class="half">

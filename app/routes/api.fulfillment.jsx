@@ -19,6 +19,18 @@ export const action = async ({ request }) => {
                     shippingAddress {
                         address1 address2 city province zip country phone
                     }
+                    totalPriceSet {
+                        shopMoney {
+                            amount
+                            currencyCode
+                        }
+                    }
+                    totalOutstandingSet {
+                        shopMoney {
+                            amount
+                            currencyCode
+                        }
+                    }
                     fulfillmentOrders(first: 10) {
                         edges {
                             node {
@@ -43,7 +55,34 @@ export const action = async ({ request }) => {
             { variables: { id: orderGid } }
         );
         const result = await response.json();
-        return json({ intent: "fetchOrderData", orderData: result.data?.order });
+
+        // Calculate remaining COD
+        const orderData = result.data?.order;
+        let remainingCOD = 0;
+        let totalOutstanding = 0;
+        let totalCODCollected = 0;
+
+        if (orderData) {
+            totalOutstanding = parseFloat(orderData.totalOutstandingSet?.shopMoney?.amount || 0);
+
+            const parcels = await prisma.parcel.findMany({
+                where: { orderId: orderGid }
+            });
+            totalCODCollected = parcels.reduce((sum, p) => {
+                const val = parseFloat(p.valueOfRepayment);
+                return sum + (isNaN(val) ? 0 : val);
+            }, 0);
+
+            remainingCOD = Math.max(0, totalOutstanding - totalCODCollected);
+        }
+
+        return json({
+            intent: "fetchOrderData",
+            orderData,
+            totalOutstanding,
+            totalCODCollected,
+            remainingCOD
+        });
     }
 
     if (intent === "fulfill") {

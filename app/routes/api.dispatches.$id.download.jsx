@@ -72,8 +72,8 @@ export async function loader({ request, params }) {
 
         if (!order) continue;
 
-        const outstandingAmount = parseFloat(order.totalOutstandingSet?.shopMoney?.amount || "0");
-        const isCOD = outstandingAmount > 0;
+        const codAmount = parcel.valueOfRepayment ? parseFloat(parcel.valueOfRepayment) : 0;
+        const isCOD = !isNaN(codAmount) && codAmount > 0;
 
         const rAddr = order.shippingAddress || {};
         const customerName = rAddr.name || (order.customer ? `${order.customer.firstName || ''} ${order.customer.lastName || ''}`.trim() : "");
@@ -98,7 +98,7 @@ export async function loader({ request, params }) {
             "Pre Payment Code": "",
             "Value Of Repayment": parcel.valueOfRepayment || "",
             "COD": isCOD ? "COD" : "BANK",
-            "Value For COD": isCOD ? outstandingAmount : 0,
+            "Value For COD": isCOD ? codAmount : 0,
             "Insurance Type": "",
             "Value Of Insurance": "",
             "Shape Of Article": "NROL",

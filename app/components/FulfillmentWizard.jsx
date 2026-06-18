@@ -31,6 +31,7 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [orderData, setOrderData] = useState(null);
+    const [remainingCOD, setRemainingCOD] = useState(0);
 
     // Step 1
     const [selectedFulfillmentOrderId, setSelectedFulfillmentOrderId] = useState(null);
@@ -76,6 +77,7 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
             setParcelHeight("");
             setParcelWeight("");
             setParcelVOR("");
+            setRemainingCOD(0);
             setShippingAddress({ address1: "", address2: "", city: "", province: "", zip: "", country: "" });
             setSelectedAddons([]);
             setSelectedAddonId("");
@@ -99,6 +101,8 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
             setLoading(false);
             if (fetcher.data.orderData) {
                 setOrderData(fetcher.data.orderData);
+                setRemainingCOD(fetcher.data.remainingCOD || 0);
+                setParcelVOR((fetcher.data.remainingCOD || 0).toString());
                 const addr = fetcher.data.orderData.shippingAddress;
                 if (addr) {
                     setShippingAddress({
@@ -176,11 +180,16 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
             setParcelWidth(pkg.width.toString());
             setParcelHeight(pkg.height.toString());
             setParcelWeight(pkg.weight.toString());
-            setParcelVOR(pkg.valueOfRepayment || "");
+            const pkgVORVal = parseFloat(pkg.valueOfRepayment);
+            if (pkg.valueOfRepayment && !isNaN(pkgVORVal) && pkgVORVal <= remainingCOD) {
+                setParcelVOR(pkg.valueOfRepayment);
+            } else {
+                setParcelVOR(remainingCOD.toString());
+            }
         } else {
-            setParcelLength(""); setParcelWidth(""); setParcelHeight(""); setParcelWeight(""); setParcelVOR("");
+            setParcelLength(""); setParcelWidth(""); setParcelHeight(""); setParcelWeight(""); setParcelVOR(remainingCOD.toString());
         }
-    }, [packages]);
+    }, [packages, remainingCOD]);
 
     const handleSubmit = useCallback(() => {
         const fd = new FormData();
@@ -222,10 +231,10 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
 
     const handlePrintInvoice = useCallback(() => {
         if (labelData) {
-            printInvoice({ 
-                order: labelData.order, 
-                shop: labelData.shop, 
-                printSettings: labelFetcher.data?.printSettings, 
+            printInvoice({
+                order: labelData.order,
+                shop: labelData.shop,
+                printSettings: labelFetcher.data?.printSettings,
                 parcels: labelFetcher.data?.parcels,
                 invoiceNumber: labelFetcher.data?.invoice?.invoiceNumber
             });
@@ -245,6 +254,10 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
 
     const dimDisabled = selectedPackage !== "custom" && selectedPackage !== "";
 
+    const vorNum = parseFloat(parcelVOR);
+    const isVorInvalid = !isNaN(vorNum) && vorNum > remainingCOD;
+    const vorError = isVorInvalid ? `COD amount cannot exceed remaining order amount (₹${remainingCOD})` : "";
+
     // Build modal actions based on step
     let primaryAction, secondaryActions;
     if (step === 4) {
@@ -259,7 +272,7 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
             loading: fetcher.state !== "idle",
             disabled:
                 (step === 1 && !selectedFulfillmentOrderId) ||
-                (step === 2 && (!awbNumber || !selectedCarrier || !selectedPackage)),
+                (step === 2 && (!awbNumber || !selectedCarrier || !selectedPackage || isVorInvalid)),
         };
         secondaryActions = [
             step > 1
@@ -381,7 +394,7 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
                                 <TextField label="Height (cm)" type="number" value={parcelHeight} onChange={setParcelHeight} autoComplete="off" disabled={dimDisabled} />
                                 <TextField label="Weight (kg)" type="number" value={parcelWeight} onChange={setParcelWeight} autoComplete="off" disabled={dimDisabled} />
                             </FormLayout.Group>
-                            <TextField label="Value Of Repayment" type="text" value={parcelVOR} onChange={setParcelVOR} autoComplete="off" disabled={dimDisabled} />
+                            <TextField label="COD Amount" type="number" value={parcelVOR} onChange={setParcelVOR} autoComplete="off" error={vorError} />
                         </FormLayout>
                     </BlockStack>
                 )}
@@ -448,12 +461,12 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
                                                                         prefix="Qty"
                                                                     />
                                                                 </div>
-                                                                <Button 
-                                                                    icon={DeleteIcon} 
-                                                                    tone="critical" 
-                                                                    variant="plain" 
+                                                                <Button
+                                                                    icon={DeleteIcon}
+                                                                    tone="critical"
+                                                                    variant="plain"
                                                                     accessibilityLabel="Remove"
-                                                                    onClick={() => setSelectedAddons(selectedAddons.filter(a => a.id !== item.id))} 
+                                                                    onClick={() => setSelectedAddons(selectedAddons.filter(a => a.id !== item.id))}
                                                                 />
                                                             </InlineStack>
                                                         </InlineStack>
