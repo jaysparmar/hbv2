@@ -24,8 +24,9 @@ function isGujarat(province) {
  * @param {Object} [params.printSettings] - Optional print settings from DB
  * @returns {string} Full HTML document string
  */
-export function generateInvoiceHtml({ order, shop, printSettings = {}, parcels = [] }) {
+export function generateInvoiceHtml({ order, shop, printSettings = {}, parcels = [], invoiceNumber }) {
     const s = printSettings;
+    const resolvedInvoiceNumber = invoiceNumber || order.name;
     const currency = order.totalPriceSet.shopMoney.currencyCode;
     const totalAmount = parseFloat(order.totalPriceSet.shopMoney.amount);
     const outstandingAmount = parseFloat(order.totalOutstandingSet?.shopMoney?.amount || 0);
@@ -108,7 +109,7 @@ export function generateInvoiceHtml({ order, shop, printSettings = {}, parcels =
     return `<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
-<title>Invoice - ${order.name}</title>
+<title>Invoice - ${resolvedInvoiceNumber}</title>
 <style>
 @page { size: A4; margin: 4mm; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -171,7 +172,7 @@ table.items tr:nth-child(even) { background: #fff; }
         <div class="invoice-title">
             <h2>${invoiceTitle}</h2>
             <div class="invoice-meta">
-                <strong>Invoice #:</strong> ${order.name}<br>
+                <strong>Invoice #:</strong> ${resolvedInvoiceNumber}<br>
                 <strong>Date:</strong> ${orderDate}<br>
                 <strong>Payment:</strong> ${order.displayFinancialStatus || "N/A"}
             </div>
@@ -280,7 +281,7 @@ table.items tr:nth-child(even) { background: #fff; }
     </div>
 
     <div class="footer">
-        <span>Invoice ${order.name} · ${orderDate}</span>
+        <span>Invoice ${resolvedInvoiceNumber} · ${orderDate}</span>
         <span>${footerText}</span>
     </div>
 </div>

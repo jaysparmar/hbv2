@@ -21,15 +21,16 @@ export const loader = async ({ request, params }) => {
     throw new Response("Not Found", { status: 404 });
   }
 
-  const [carriers, packages, addons, parcels, transactions] = await Promise.all([
+  const [carriers, packages, addons, parcels, transactions, invoice] = await Promise.all([
     prisma.carrier.findMany({ where: { isActive: true }, orderBy: { name: "asc" } }),
     prisma.package.findMany({ orderBy: { name: "asc" } }),
     prisma.addonProduct.findMany({ where: { isActive: true, stock: { gt: 0 } }, orderBy: { name: "asc" } }),
     prisma.parcel.findMany({ where: { orderId: `custom-${orderId}` }, include: { addons: { include: { addon: true } } } }),
-    prisma.transactionHistory.findMany({ where: { orderName: order.orderName }, orderBy: { createdAt: "desc" } })
+    prisma.transactionHistory.findMany({ where: { orderName: order.orderName }, orderBy: { createdAt: "desc" } }),
+    prisma.invoice.findUnique({ where: { orderId: `custom-${orderId}` } })
   ]);
 
-  return json({ order, carriers, packages, addons, parcels, transactions });
+  return json({ order, carriers, packages, addons, parcels, transactions, invoice });
 };
 
 // --- ACTION ---
@@ -153,27 +154,59 @@ export const action = async ({ request, params }) => {
     const order = await prisma.customOrder.findUnique({ where: { id: orderId } });
     if (!order) return json({ error: "Order not found" }, { status: 404 });
 
-    const parcel = await prisma.parcel.create({
-      data: {
-        orderId: `custom-${orderId}`,
-        orderName: order.orderName,
-        fulfillmentId: "custom",
-        carrierId, carrierName, awbNumber,
-        length: parcelLength, width: parcelWidth, height: parcelHeight, weight: parcelWeight,
-        valueOfRepayment: parcelValueOfRepayment,
-        addons: {
-          create: addonPayload.map(a => ({ addonId: parseInt(a.id, 10), quantity: a.quantity }))
-        }
-      }
-    });
-
-    // Update stock for addons
-    for (const a of addonPayload) {
-      await prisma.addonProduct.update({
-        where: { id: parseInt(a.id, 10) },
-        data: { stock: { decrement: a.quantity } }
+    const parcel = await prisma.$transaction(async (tx) => {
+      let invoice = await tx.invoice.findUnique({
+        where: { orderId: `custom-${orderId}` }
       });
-    }
+
+      if (!invoice) {
+        const prefixSetting = await tx.setting.findUnique({ where: { key: "invoice_prefix" } });
+        const serialSetting = await tx.setting.findUnique({ where: { key: "invoice_start_serial" } });
+
+        const prefix = prefixSetting?.value !== undefined ? prefixSetting.value : "INV-";
+        const serialStr = serialSetting?.value !== undefined ? serialSetting.value : "1000";
+        const serialNum = parseInt(serialStr, 10) || 1000;
+
+        const invoiceNumber = `${prefix}${serialNum}`;
+
+        invoice = await tx.invoice.create({
+          data: {
+            orderId: `custom-${orderId}`,
+            invoiceNumber
+          }
+        });
+
+        await tx.setting.upsert({
+          where: { key: "invoice_start_serial" },
+          update: { value: (serialNum + 1).toString() },
+          create: { key: "invoice_start_serial", value: (serialNum + 1).toString() }
+        });
+      }
+
+      const newParcel = await tx.parcel.create({
+        data: {
+          orderId: `custom-${orderId}`,
+          orderName: order.orderName,
+          fulfillmentId: "custom",
+          carrierId, carrierName, awbNumber,
+          length: parcelLength, width: parcelWidth, height: parcelHeight, weight: parcelWeight,
+          valueOfRepayment: parcelValueOfRepayment,
+          addons: {
+            create: addonPayload.map(a => ({ addonId: parseInt(a.id, 10), quantity: a.quantity }))
+          }
+        }
+      });
+
+      // Update stock for addons
+      for (const a of addonPayload) {
+        await tx.addonProduct.update({
+          where: { id: parseInt(a.id, 10) },
+          data: { stock: { decrement: a.quantity } }
+        });
+      }
+
+      return newParcel;
+    });
 
     // Mark custom order as fulfilled
     await prisma.customOrder.update({
@@ -194,7 +227,7 @@ export const action = async ({ request, params }) => {
 
 // --- COMPONENT ---
 export default function CustomOrderDetail() {
-  const { order, carriers, packages, addons, parcels, transactions } = useLoaderData();
+  const { order, carriers, packages, addons, parcels, transactions, invoice } = useLoaderData();
   const navigate = useNavigate();
   const submit = useSubmit();
   const [searchParams] = useSearchParams();
@@ -299,7 +332,7 @@ export default function CustomOrderDetail() {
         } : undefined
       }
       secondaryActions={[
-        { content: "Print Invoice", onAction: () => window.open(`/api/custom-invoice/${order.id}`, '_blank') },
+        { content: "Print Invoice", onAction: () => window.open(`/api/custom-invoice/${order.id}`, '_blank'), disabled: !invoice },
         ...(order.paymentStatus !== "FULLY PAID" ? [{ content: "Add Payment", onAction: () => setAddPaymentOpen(true) }] : []),
         { content: "Delete", destructive: true, onAction: () => setDeleteModalOpen(true) }
       ]}

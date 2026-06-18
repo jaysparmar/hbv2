@@ -13,13 +13,14 @@ export const loader = async ({ params }) => {
     const orderId = parseInt(params.id, 10);
     if (!orderId) return new Response("Invalid order ID", { status: 400 });
 
-    const [order, settingsRows, parcels] = await Promise.all([
+    const [order, settingsRows, parcels, invoice] = await Promise.all([
         prisma.customOrder.findUnique({ where: { id: orderId } }),
         prisma.setting.findMany({ where: { key: { in: PRINT_SETTING_KEYS } } }),
         prisma.parcel.findMany({ 
             where: { orderId: `custom-${orderId}` },
             include: { addons: { include: { addon: true } } }
-        })
+        }),
+        prisma.invoice.findUnique({ where: { orderId: `custom-${orderId}` } })
     ]);
 
     if (!order) return new Response("Order not found", { status: 404 });
@@ -55,6 +56,6 @@ export const loader = async ({ params }) => {
       }})) }
     };
 
-    const html = generateInvoiceHtml({ order: adaptedOrder, shop: {}, printSettings: s, parcels });
+    const html = generateInvoiceHtml({ order: adaptedOrder, shop: {}, printSettings: s, parcels, invoiceNumber: invoice?.invoiceNumber });
     return new Response(html, { headers: { "Content-Type": "text/html" } });
 };

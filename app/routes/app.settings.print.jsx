@@ -33,6 +33,8 @@ const KEYS = {
     invoice_from_phone: "invoice_from_phone",
     invoice_from_email: "invoice_from_email",
     invoice_signature: "invoice_signature",
+    invoice_prefix: "invoice_prefix",
+    invoice_start_serial: "invoice_start_serial",
 };
 
 async function getSetting(key) {
@@ -104,6 +106,8 @@ export default function PrintSettingsPage() {
     const [invoiceFromPhone, setInvoiceFromPhone] = useState(data.invoice_from_phone);
     const [invoiceFromEmail, setInvoiceFromEmail] = useState(data.invoice_from_email);
     const [invoiceSignature, setInvoiceSignature] = useState(data.invoice_signature);
+    const [invoicePrefix, setInvoicePrefix] = useState(data.invoice_prefix || "INV-");
+    const [invoiceStartSerial, setInvoiceStartSerial] = useState(data.invoice_start_serial || "1000");
 
     const [showBanner, setShowBanner] = useState(false);
 
@@ -132,6 +136,8 @@ export default function PrintSettingsPage() {
         setInvoiceFromPhone(data.invoice_from_phone);
         setInvoiceFromEmail(data.invoice_from_email);
         setInvoiceSignature(data.invoice_signature);
+        setInvoicePrefix(data.invoice_prefix || "INV-");
+        setInvoiceStartSerial(data.invoice_start_serial || "1000");
     }, [data]);
 
     useEffect(() => {
@@ -169,6 +175,8 @@ export default function PrintSettingsPage() {
                 invoice_from_phone: invoiceFromPhone,
                 invoice_from_email: invoiceFromEmail,
                 invoice_signature: invoiceSignature,
+                invoice_prefix: invoicePrefix,
+                invoice_start_serial: invoiceStartSerial,
             },
             { method: "post" }
         );
@@ -177,6 +185,7 @@ export default function PrintSettingsPage() {
         labelFromName, labelFromAddr1, labelFromAddr2, labelFromCity, labelFromProvince, labelFromZip, labelFromPhone,
         invoiceCompanyName, invoiceTitle, invoiceGstin, invoiceFooter, invoiceTerms,
         invoiceFromAddr1, invoiceFromAddr2, invoiceFromCity, invoiceFromProvince, invoiceFromZip, invoiceFromPhone, invoiceFromEmail, invoiceSignature,
+        invoicePrefix, invoiceStartSerial,
         submit,
     ]);
 
@@ -316,6 +325,25 @@ export default function PrintSettingsPage() {
                                         placeholder="Tax Invoice"
                                         autoComplete="off"
                                         helpText="The heading shown on the invoice, e.g. 'Tax Invoice', 'Proforma Invoice'."
+                                    />
+                                </FormLayout.Group>
+                                <FormLayout.Group>
+                                    <TextField
+                                        label="Invoice Prefix"
+                                        value={invoicePrefix}
+                                        onChange={setInvoicePrefix}
+                                        placeholder="INV-"
+                                        autoComplete="off"
+                                        helpText="Prefix for generated invoice numbers (e.g. 'INV-')."
+                                    />
+                                    <TextField
+                                        label="Start Serial Number"
+                                        value={invoiceStartSerial}
+                                        onChange={setInvoiceStartSerial}
+                                        type="number"
+                                        placeholder="1000"
+                                        autoComplete="off"
+                                        helpText="The next invoice number sequence (will increment automatically)."
                                     />
                                 </FormLayout.Group>
                                 <TextField

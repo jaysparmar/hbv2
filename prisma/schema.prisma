@@ -172,3 +172,12 @@ model TransactionHistory {
   @@index([orderName])
 }
 
+model Invoice {
+  id            Int      @id @default(autoincrement())
+  orderId       String   @unique
+  invoiceNumber String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+

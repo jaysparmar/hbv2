@@ -41,11 +41,12 @@ export const action = async ({ request }) => {
         let shopResultData = null;
         let printSettings = null;
         let parcels = [];
+        let invoice = null;
 
         if (orderId.startsWith("custom-")) {
             const customId = parseInt(orderId.replace("custom-", ""), 10);
             
-            const [localOrder, shopResponse, rawSettings, localParcels] = await Promise.all([
+            const [localOrder, shopResponse, rawSettings, localParcels, localInvoice] = await Promise.all([
                 prisma.customOrder.findUnique({ where: { id: customId } }),
                 admin.graphql(`#graphql
                     query {
@@ -61,12 +62,16 @@ export const action = async ({ request }) => {
                 prisma.parcel.findMany({
                     where: { orderId: orderId },
                     include: { addons: { include: { addon: true } } }
+                }),
+                prisma.invoice.findUnique({
+                    where: { orderId: orderId }
                 })
             ]);
             
             shopResultData = (await shopResponse.json())?.data?.shop;
             printSettings = rawSettings;
             parcels = localParcels;
+            invoice = localInvoice;
 
             if (localOrder) {
                 const parts = (localOrder.customerName || "").split(" ");
@@ -109,7 +114,7 @@ export const action = async ({ request }) => {
             }
         } else {
             const orderGid = orderId.startsWith("gid://") ? orderId : `gid://shopify/Order/${orderId}`;
-            const [orderResponse, shopResponse, rawSettings, localParcels] = await Promise.all([
+            const [orderResponse, shopResponse, rawSettings, localParcels, localInvoice] = await Promise.all([
                 admin.graphql(
                     `#graphql
                     query getOrderForLabel($id: ID!) {
@@ -155,6 +160,9 @@ export const action = async ({ request }) => {
                 prisma.parcel.findMany({
                     where: { orderId: orderGid },
                     include: { addons: { include: { addon: true } } }
+                }),
+                prisma.invoice.findUnique({
+                    where: { orderId: orderGid }
                 })
             ]);
 
@@ -164,6 +172,7 @@ export const action = async ({ request }) => {
             shopResultData = shopResult.data?.shop;
             printSettings = rawSettings;
             parcels = localParcels;
+            invoice = localInvoice;
         }
 
         return json({
@@ -172,6 +181,7 @@ export const action = async ({ request }) => {
             shop: shopResultData,
             printSettings,
             parcels,
+            invoice,
         });
     }
 

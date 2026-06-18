@@ -222,7 +222,13 @@ export default function FulfillmentWizard({ open, onClose, orderId, orderName, c
 
     const handlePrintInvoice = useCallback(() => {
         if (labelData) {
-            printInvoice({ order: labelData.order, shop: labelData.shop, printSettings: labelFetcher.data?.printSettings, parcels: labelFetcher.data?.parcels });
+            printInvoice({ 
+                order: labelData.order, 
+                shop: labelData.shop, 
+                printSettings: labelFetcher.data?.printSettings, 
+                parcels: labelFetcher.data?.parcels,
+                invoiceNumber: labelFetcher.data?.invoice?.invoiceNumber
+            });
         }
     }, [labelData, labelFetcher.data]);
 

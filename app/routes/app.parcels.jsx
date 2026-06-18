@@ -185,7 +185,8 @@ export default function ParcelsMaster() {
                     order: invoiceFetcher.data.order, 
                     shop: invoiceFetcher.data.shop, 
                     printSettings: invoiceFetcher.data.printSettings,
-                    parcels: invoiceFetcher.data.parcels || [parcels.find(p => p.id === invoiceParcelId)]
+                    parcels: invoiceFetcher.data.parcels || [parcels.find(p => p.id === invoiceParcelId)],
+                    invoiceNumber: invoiceFetcher.data.invoice?.invoiceNumber
                 });
             }
             setInvoiceParcelId(null);

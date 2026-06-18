@@ -173,7 +173,9 @@ export const loader = async ({ request, params }) => {
     const printSettings = {};
     settingRows.forEach(r => { printSettings[r.key] = r.value; });
 
-    return json({ order, packages, carriers, addons, parcels, shop, printSettings });
+    const invoice = await prisma.invoice.findUnique({ where: { orderId } });
+
+    return json({ order, packages, carriers, addons, parcels, shop, printSettings, invoice });
 };
 
 export const action = async ({ request, params }) => {
@@ -344,7 +346,7 @@ export const action = async ({ request, params }) => {
 };
 
 export default function OrderDetails() {
-    const { order, packages, carriers, addons, parcels, shop, printSettings } = useLoaderData();
+    const { order, packages, carriers, addons, parcels, shop, printSettings, invoice } = useLoaderData();
     const actionData = useActionData();
     const submit = useSubmit();
     const navigation = useNavigation();
@@ -409,8 +411,8 @@ export default function OrderDetails() {
     }, [order, shop, printSettings]);
 
     const handlePrintInvoice = useCallback(() => {
-        printInvoice({ order, shop, printSettings, parcels });
-    }, [order, shop, printSettings, parcels]);
+        printInvoice({ order, shop, printSettings, parcels, invoiceNumber: invoice?.invoiceNumber });
+    }, [order, shop, printSettings, parcels, invoice]);
 
     if (!order) {
         return (
@@ -439,6 +441,7 @@ export default function OrderDetails() {
                 {
                     content: "Print Invoice",
                     onAction: handlePrintInvoice,
+                    disabled: !invoice,
                 },
             ]}
             compactTitle

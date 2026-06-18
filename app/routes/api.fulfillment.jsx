@@ -128,6 +128,34 @@ export const action = async ({ request }) => {
         if (newFulfillmentId) {
             try {
                 createdParcel = await prisma.$transaction(async (tx) => {
+                    let invoice = await tx.invoice.findUnique({
+                        where: { orderId }
+                    });
+
+                    if (!invoice) {
+                        const prefixSetting = await tx.setting.findUnique({ where: { key: "invoice_prefix" } });
+                        const serialSetting = await tx.setting.findUnique({ where: { key: "invoice_start_serial" } });
+
+                        const prefix = prefixSetting?.value !== undefined ? prefixSetting.value : "INV-";
+                        const serialStr = serialSetting?.value !== undefined ? serialSetting.value : "1000";
+                        const serialNum = parseInt(serialStr, 10) || 1000;
+
+                        const invoiceNumber = `${prefix}${serialNum}`;
+
+                        invoice = await tx.invoice.create({
+                            data: {
+                                orderId,
+                                invoiceNumber
+                            }
+                        });
+
+                        await tx.setting.upsert({
+                            where: { key: "invoice_start_serial" },
+                            update: { value: (serialNum + 1).toString() },
+                            create: { key: "invoice_start_serial", value: (serialNum + 1).toString() }
+                        });
+                    }
+
                     const parcel = await tx.parcel.create({
                         data: {
                             orderId,
