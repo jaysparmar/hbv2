@@ -169,7 +169,6 @@ export const loader = async ({ request }) => {
     const startDate = url.searchParams.get("startDate") || getDefaultStartDate();
     const endDate = url.searchParams.get("endDate") || getDefaultEndDate();
     const reportType = url.searchParams.get("reportType") || "sales";
-    const download = url.searchParams.get("download") === "true";
 
     // Validate inputs
     if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
@@ -189,93 +188,6 @@ export const loader = async ({ request }) => {
                 createdAt: "desc"
             }
         });
-
-        if (download) {
-            const aoa = [
-                [
-                    "Vch. No.",
-                    "Date",
-                    "Order No.",
-                    "Customer",
-                    "Mob. No.",
-                    "City",
-                    "Pin Code No.",
-                    "State",
-                    "Order Date",
-                    "Pickup Date",
-                    "Payment Date",
-                    "Tracking No.",
-                    "Days",
-                    "Delivery Date",
-                    "Return Date",
-                    "Courier Charges",
-                    "Order Source",
-                    "Is Completed?",
-                    "Remaining Amount"
-                ]
-            ];
-
-            deliveries.forEach(row => {
-                let city = "";
-                let state = "";
-                if (row.officeName) {
-                    const parts = row.officeName.split(", ");
-                    if (parts.length >= 2) {
-                        city = parts[0];
-                        state = parts.slice(1).join(", ");
-                    } else {
-                        city = row.officeName;
-                    }
-                }
-
-                let days = "";
-                if (row.createdAt && row.deliveredDate) {
-                    const diffTime = Math.abs(new Date(row.deliveredDate) - new Date(row.createdAt));
-                    days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                }
-
-                const remainingAmount = row.billDate ? 0 : row.codValue;
-
-                aoa.push([
-                    row.codInvoiceNumber || row.id.toString(),
-                    formatDDMMYYYY(row.createdAt),
-                    row.contractId || "",
-                    row.customerName || "",
-                    row.customerId || "",
-                    city,
-                    row.officeId || "",
-                    state,
-                    formatDDMMYYYY(row.createdAt),
-                    formatDDMMYYYY(row.createdAt),
-                    formatDDMMYYYY(row.billDate),
-                    row.articleNumber || "",
-                    days,
-                    formatDDMMYYYY(row.deliveredDate),
-                    "", // Return Date
-                    row.codCommission || 0,
-                    row.contractMode || "",
-                    row.billDate ? "Yes" : "",
-                    remainingAmount
-                ]);
-            });
-
-            const totalRemaining = deliveries.reduce((sum, r) => sum + (r.billDate ? 0 : r.codValue), 0);
-            aoa.push(["TOTAL PENDING", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", totalRemaining]);
-
-            const worksheet = xlsx.utils.aoa_to_sheet(aoa);
-            const workbook = xlsx.utils.book_new();
-            xlsx.utils.book_append_sheet(workbook, worksheet, "Sheet1");
-
-            const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
-
-            return new Response(buffer, {
-                status: 200,
-                headers: {
-                    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "Content-Disposition": `attachment; filename="PENDING_PAYMENT_REPORT_${startDate}_TO_${endDate}.xlsx"`,
-                },
-            });
-        }
 
         const deliveriesData = deliveries.map((row, idx) => {
             const remainingAmount = row.billDate ? 0 : row.codValue;
@@ -369,39 +281,6 @@ export const loader = async ({ request }) => {
 
     const totalQty = salesData.reduce((sum, row) => sum + row.qty, 0);
 
-    // 4. Excel Download handling
-    if (download) {
-        const aoa = [
-            [],
-            [`SALES REPORT OF ${startDate} TO ${endDate}`.toUpperCase()],
-            [],
-            [],
-            [],
-            ["SR. NO.", "ITEM NAME", "QTY."],
-        ];
-
-        let srNo = 1;
-        salesData.forEach(row => {
-            aoa.push([srNo++, row.itemName, row.qty]);
-        });
-
-        aoa.push(["TOTAL", "", totalQty]);
-
-        const worksheet = xlsx.utils.aoa_to_sheet(aoa);
-        const workbook = xlsx.utils.book_new();
-        xlsx.utils.book_append_sheet(workbook, worksheet, "Sheet1");
-
-        const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
-
-        return new Response(buffer, {
-            status: 200,
-            headers: {
-                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "Content-Disposition": `attachment; filename="SALES_REPORT_${startDate}_TO_${endDate}.xlsx"`,
-            },
-        });
-    }
-
     return json({ salesData, totalQty, reportType, startDate, endDate });
 };
 
@@ -460,7 +339,7 @@ export default function Reports() {
             ? `PENDING_PAYMENT_REPORT_${startDate}_TO_${endDate}.xlsx` 
             : `SALES_REPORT_${startDate}_TO_${endDate}.xlsx`;
         try {
-            const response = await fetch(`/app/reports?download=true&reportType=${type}&startDate=${startDate}&endDate=${endDate}`);
+            const response = await fetch(`/api/reports/download?reportType=${type}&startDate=${startDate}&endDate=${endDate}`);
             if (!response.ok) throw new Error("Failed to export report");
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
