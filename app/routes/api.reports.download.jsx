@@ -240,6 +240,175 @@ export const loader = async ({ request }) => {
         });
     }
 
+    // --- PENDING DELIVERY REPORT ---
+    if (reportType === "pending_deliveries") {
+        const deliveries = await prisma.delivery.findMany({
+            where: {
+                createdAt: {
+                    gte: new Date(`${startDate}T00:00:00Z`),
+                    lte: new Date(`${endDate}T23:59:59Z`),
+                },
+                deliveredDate: null
+            },
+            orderBy: {
+                createdAt: "desc"
+            }
+        });
+
+        const aoa = [
+            [
+                "SR. NO.",
+                "Vch. No.",
+                "Booking Date",
+                "Order No.",
+                "Customer",
+                "Mob. No.",
+                "City",
+                "Pin Code No.",
+                "State",
+                "Tracking No.",
+                "COD Value",
+                "Courier Charges",
+                "Order Source",
+                "Status"
+            ]
+        ];
+
+        deliveries.forEach((row, idx) => {
+            let city = "";
+            let state = "";
+            if (row.officeName) {
+                const parts = row.officeName.split(", ");
+                if (parts.length >= 2) {
+                    city = parts[0];
+                    state = parts.slice(1).join(", ");
+                } else {
+                    city = row.officeName;
+                }
+            }
+
+            aoa.push([
+                idx + 1,
+                row.codInvoiceNumber || row.id.toString(),
+                formatDDMMYYYY(row.createdAt),
+                row.contractId || "",
+                row.customerName || "",
+                row.customerId || "",
+                city,
+                row.officeId || "",
+                state,
+                row.articleNumber || "",
+                row.codValue || 0,
+                row.codCommission || 0,
+                row.contractMode || "",
+                "Pending"
+            ]);
+        });
+
+        const totalCodValue = deliveries.reduce((sum, r) => sum + (r.codValue || 0), 0);
+        const totalCourierCharges = deliveries.reduce((sum, r) => sum + (r.codCommission || 0), 0);
+        aoa.push(["TOTAL PENDING", "", "", "", "", "", "", "", "", "", totalCodValue, totalCourierCharges, "", ""]);
+
+        const worksheet = xlsx.utils.aoa_to_sheet(aoa);
+        const workbook = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+
+        const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+        return new Response(buffer, {
+            status: 200,
+            headers: {
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Content-Disposition": `attachment; filename="PENDING_DELIVERY_REPORT_${startDate}_TO_${endDate}.xlsx"`,
+            },
+        });
+    }
+
+    // --- DAILY DELIVERIES REPORT ---
+    if (reportType === "daily_deliveries") {
+        const deliveries = await prisma.delivery.findMany({
+            where: {
+                deliveredDate: {
+                    gte: new Date(`${startDate}T00:00:00Z`),
+                    lte: new Date(`${endDate}T23:59:59Z`),
+                }
+            },
+            orderBy: {
+                deliveredDate: "asc"
+            }
+        });
+
+        const aoa = [
+            [
+                "SR. NO.",
+                "Delivery Date",
+                "Vch. No.",
+                "Booking Date",
+                "Order No.",
+                "Customer",
+                "Mob. No.",
+                "City",
+                "Pin Code No.",
+                "State",
+                "Tracking No.",
+                "COD Value",
+                "Courier Charges",
+                "Payment Date",
+                "Order Source"
+            ]
+        ];
+
+        deliveries.forEach((row, idx) => {
+            let city = "";
+            let state = "";
+            if (row.officeName) {
+                const parts = row.officeName.split(", ");
+                if (parts.length >= 2) {
+                    city = parts[0];
+                    state = parts.slice(1).join(", ");
+                } else {
+                    city = row.officeName;
+                }
+            }
+
+            aoa.push([
+                idx + 1,
+                formatDDMMYYYY(row.deliveredDate),
+                row.codInvoiceNumber || row.id.toString(),
+                formatDDMMYYYY(row.createdAt),
+                row.contractId || "",
+                row.customerName || "",
+                row.customerId || "",
+                city,
+                row.officeId || "",
+                state,
+                row.articleNumber || "",
+                row.codValue || 0,
+                row.codCommission || 0,
+                formatDDMMYYYY(row.billDate),
+                row.contractMode || ""
+            ]);
+        });
+
+        const totalCodValue = deliveries.reduce((sum, r) => sum + (r.codValue || 0), 0);
+        const totalCourierCharges = deliveries.reduce((sum, r) => sum + (r.codCommission || 0), 0);
+        aoa.push(["TOTAL DELIVERED", "", "", "", "", "", "", "", "", "", "", totalCodValue, totalCourierCharges, "", ""]);
+
+        const worksheet = xlsx.utils.aoa_to_sheet(aoa);
+        const workbook = xlsx.utils.book_new();
+        xlsx.utils.book_append_sheet(workbook, worksheet, "Sheet1");
+
+        const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" });
+
+        return new Response(buffer, {
+            status: 200,
+            headers: {
+                "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "Content-Disposition": `attachment; filename="DELIVERY_DATE_WISE_DAILY_REPORT_${startDate}_TO_${endDate}.xlsx"`,
+            },
+        });
+    }
+
     // --- SALES REPORT ---
     const allVariants = await fetchAllShopifyVariants(admin);
 

@@ -213,6 +213,80 @@ export const loader = async ({ request }) => {
         return json({ deliveriesData, totalRemaining, reportType, startDate, endDate });
     }
 
+    // --- PENDING DELIVERY REPORT ---
+    if (reportType === "pending_deliveries") {
+        const deliveries = await prisma.delivery.findMany({
+            where: {
+                createdAt: {
+                    gte: new Date(`${startDate}T00:00:00Z`),
+                    lte: new Date(`${endDate}T23:59:59Z`),
+                },
+                deliveredDate: null
+            },
+            orderBy: {
+                createdAt: "desc"
+            }
+        });
+
+        const deliveriesData = deliveries.map((row, idx) => {
+            return {
+                srNo: idx + 1,
+                vchNo: row.codInvoiceNumber || row.id.toString(),
+                date: formatDDMMYYYY(row.createdAt),
+                orderNo: row.contractId || "",
+                customer: row.customerName || "",
+                mobNo: row.customerId || "",
+                trackingNo: row.articleNumber || "",
+                codValue: row.codValue || 0,
+                courierCharges: row.codCommission || 0,
+                source: row.contractMode || "",
+                completed: "No"
+            };
+        });
+
+        const totalRemaining = deliveriesData.reduce((sum, r) => sum + r.codValue, 0);
+
+        return json({ deliveriesData, totalRemaining, reportType, startDate, endDate });
+    }
+
+    // --- DAILY DELIVERIES REPORT ---
+    if (reportType === "daily_deliveries") {
+        const deliveries = await prisma.delivery.findMany({
+            where: {
+                deliveredDate: {
+                    gte: new Date(`${startDate}T00:00:00Z`),
+                    lte: new Date(`${endDate}T23:59:59Z`),
+                }
+            },
+            orderBy: {
+                deliveredDate: "asc"
+            }
+        });
+
+        const deliveriesData = deliveries.map((row, idx) => {
+            return {
+                srNo: idx + 1,
+                vchNo: row.codInvoiceNumber || row.id.toString(),
+                bookingDate: formatDDMMYYYY(row.createdAt),
+                deliveryDate: formatDDMMYYYY(row.deliveredDate),
+                orderNo: row.contractId || "",
+                customer: row.customerName || "",
+                mobNo: row.customerId || "",
+                trackingNo: row.articleNumber || "",
+                codValue: row.codValue || 0,
+                courierCharges: row.codCommission || 0,
+                paymentDate: formatDDMMYYYY(row.billDate),
+                source: row.contractMode || "",
+                completed: "Yes"
+            };
+        });
+
+        const totalCodValue = deliveriesData.reduce((sum, r) => sum + r.codValue, 0);
+        const totalCourierCharges = deliveriesData.reduce((sum, r) => sum + r.courierCharges, 0);
+
+        return json({ deliveriesData, totalCodValue, totalCourierCharges, reportType, startDate, endDate });
+    }
+
     // --- SALES REPORT ---
     // 1. Fetch Shopify variants
     const allVariants = await fetchAllShopifyVariants(admin);
@@ -293,7 +367,11 @@ export default function Reports() {
     const [startDate, setStartDate] = useState(data.startDate || getDefaultStartDate());
     const [endDate, setEndDate] = useState(data.endDate || getDefaultEndDate());
     const [isExporting, setIsExporting] = useState(false);
-    const [selectedTab, setSelectedTab] = useState(reportType === "payments" ? 1 : 0);
+    const [selectedTab, setSelectedTab] = useState(
+        reportType === "payments" ? 1 :
+        reportType === "pending_deliveries" ? 2 :
+        reportType === "daily_deliveries" ? 3 : 0
+    );
 
     const isSubmitting = navigation.state === "loading" || navigation.state === "submitting";
 
@@ -308,12 +386,26 @@ export default function Reports() {
             content: 'Pending Payment Report',
             panelID: 'payments-report-panel',
         },
+        {
+            id: 'pending-deliveries-report',
+            content: 'Pending Delivery Report',
+            panelID: 'pending-deliveries-report-panel',
+        },
+        {
+            id: 'daily-deliveries-report',
+            content: 'Delivery Date Wise Daily Report',
+            panelID: 'daily-deliveries-report-panel',
+        },
     ];
 
     const handleTabChange = useCallback(
         (selectedTabIndex) => {
             setSelectedTab(selectedTabIndex);
-            const type = selectedTabIndex === 1 ? "payments" : "sales";
+            let type = "sales";
+            if (selectedTabIndex === 1) type = "payments";
+            else if (selectedTabIndex === 2) type = "pending_deliveries";
+            else if (selectedTabIndex === 3) type = "daily_deliveries";
+
             const fd = new FormData();
             fd.append("reportType", type);
             fd.append("startDate", startDate);
@@ -324,7 +416,11 @@ export default function Reports() {
     );
 
     const handlePreview = useCallback(() => {
-        const type = selectedTab === 1 ? "payments" : "sales";
+        let type = "sales";
+        if (selectedTab === 1) type = "payments";
+        else if (selectedTab === 2) type = "pending_deliveries";
+        else if (selectedTab === 3) type = "daily_deliveries";
+
         const fd = new FormData();
         fd.append("reportType", type);
         fd.append("startDate", startDate);
@@ -334,10 +430,20 @@ export default function Reports() {
 
     const handleExport = useCallback(async () => {
         setIsExporting(true);
-        const type = selectedTab === 1 ? "payments" : "sales";
-        const filename = type === "payments" 
-            ? `PENDING_PAYMENT_REPORT_${startDate}_TO_${endDate}.xlsx` 
-            : `SALES_REPORT_${startDate}_TO_${endDate}.xlsx`;
+        let type = "sales";
+        if (selectedTab === 1) type = "payments";
+        else if (selectedTab === 2) type = "pending_deliveries";
+        else if (selectedTab === 3) type = "daily_deliveries";
+
+        let filename = `SALES_REPORT_${startDate}_TO_${endDate}.xlsx`;
+        if (type === "payments") {
+            filename = `PENDING_PAYMENT_REPORT_${startDate}_TO_${endDate}.xlsx`;
+        } else if (type === "pending_deliveries") {
+            filename = `PENDING_DELIVERY_REPORT_${startDate}_TO_${endDate}.xlsx`;
+        } else if (type === "daily_deliveries") {
+            filename = `DELIVERY_DATE_WISE_DAILY_REPORT_${startDate}_TO_${endDate}.xlsx`;
+        }
+
         try {
             const response = await fetch(`/api/reports/download?reportType=${type}&startDate=${startDate}&endDate=${endDate}`);
             if (!response.ok) throw new Error("Failed to export report");
@@ -365,11 +471,21 @@ export default function Reports() {
         );
     }
 
-    const { salesData = [], totalQty = 0, deliveriesData = [], totalRemaining = 0 } = data;
-    const isPayments = selectedTab === 1;
+    const { 
+        salesData = [], 
+        totalQty = 0, 
+        deliveriesData = [], 
+        totalRemaining = 0,
+        totalCodValue = 0,
+        totalCourierCharges = 0
+    } = data;
 
     const resourceNameSales = { singular: "item", plural: "items" };
     const resourceNamePayments = { singular: "delivery", plural: "deliveries" };
+
+    const isExportDisabled = isSubmitting || (
+        selectedTab === 0 ? salesData.length === 0 : deliveriesData.length === 0
+    );
 
     return (
         <Page
@@ -379,7 +495,7 @@ export default function Reports() {
                 content: "Export to Excel",
                 onAction: handleExport,
                 loading: isExporting,
-                disabled: isSubmitting || (isPayments ? deliveriesData.length === 0 : salesData.length === 0)
+                disabled: isExportDisabled
             }}
         >
             <Layout>
@@ -429,7 +545,7 @@ export default function Reports() {
                                     <Text as="p" tone="subdued">Generating report...</Text>
                                 </Box>
                             </Box>
-                        ) : isPayments ? (
+                        ) : selectedTab === 1 ? (
                             <BlockStack>
                                 <Box padding="400" borderBlockEndWidth="025" borderColor="border">
                                     <InlineStack align="space-between">
@@ -479,6 +595,109 @@ export default function Reports() {
                                                     {row.completed === "Yes" ? "Completed" : "Pending"}
                                                 </Badge>
                                             </IndexTable.Cell>
+                                        </IndexTable.Row>
+                                    ))}
+                                </IndexTable>
+                            </BlockStack>
+                        ) : selectedTab === 2 ? (
+                            <BlockStack>
+                                <Box padding="400" borderBlockEndWidth="025" borderColor="border">
+                                    <InlineStack align="space-between">
+                                        <Text variant="headingSm" as="h3">Pending Deliveries Preview</Text>
+                                        <Badge tone="warning">Total Pending Value: ₹{totalRemaining.toFixed(2)}</Badge>
+                                    </InlineStack>
+                                </Box>
+                                <IndexTable
+                                    resourceName={resourceNamePayments}
+                                    itemCount={deliveriesData.length}
+                                    headings={[
+                                        { title: "SR. NO." },
+                                        { title: "Vch. No." },
+                                        { title: "Booking Date" },
+                                        { title: "Order No." },
+                                        { title: "Customer" },
+                                        { title: "Tracking No. (AWB)" },
+                                        { title: "COD Value" },
+                                        { title: "Courier Charges" },
+                                        { title: "Order Source" },
+                                        { title: "Status" }
+                                    ]}
+                                    selectable={false}
+                                >
+                                    {deliveriesData.map((row, index) => (
+                                        <IndexTable.Row id={row.trackingNo} key={row.trackingNo} position={index}>
+                                            <IndexTable.Cell>{row.srNo}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.vchNo}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.date}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.orderNo}</IndexTable.Cell>
+                                            <IndexTable.Cell>
+                                                <BlockStack>
+                                                    <Text fontWeight="semibold" as="span">{row.customer}</Text>
+                                                    {row.mobNo && <Text variant="bodyXs" tone="subdued" as="span">Mob: {row.mobNo}</Text>}
+                                                </BlockStack>
+                                            </IndexTable.Cell>
+                                            <IndexTable.Cell>
+                                                <Text fontWeight="bold" as="span">{row.trackingNo}</Text>
+                                            </IndexTable.Cell>
+                                            <IndexTable.Cell>₹{row.codValue}</IndexTable.Cell>
+                                            <IndexTable.Cell>₹{row.courierCharges}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.source || "—"}</IndexTable.Cell>
+                                            <IndexTable.Cell>
+                                                <Badge tone="warning">Pending</Badge>
+                                            </IndexTable.Cell>
+                                        </IndexTable.Row>
+                                    ))}
+                                </IndexTable>
+                            </BlockStack>
+                        ) : selectedTab === 3 ? (
+                            <BlockStack>
+                                <Box padding="400" borderBlockEndWidth="025" borderColor="border">
+                                    <InlineStack align="space-between" gap="400">
+                                        <Text variant="headingSm" as="h3">Daily Deliveries Preview</Text>
+                                        <InlineStack gap="300">
+                                            <Badge tone="success">Total Delivered Value: ₹{totalCodValue.toFixed(2)}</Badge>
+                                            <Badge tone="info">Total Courier Charges: ₹{totalCourierCharges.toFixed(2)}</Badge>
+                                        </InlineStack>
+                                    </InlineStack>
+                                </Box>
+                                <IndexTable
+                                    resourceName={resourceNamePayments}
+                                    itemCount={deliveriesData.length}
+                                    headings={[
+                                        { title: "SR. NO." },
+                                        { title: "Delivery Date" },
+                                        { title: "Vch. No." },
+                                        { title: "Booking Date" },
+                                        { title: "Order No." },
+                                        { title: "Customer" },
+                                        { title: "Tracking No. (AWB)" },
+                                        { title: "COD Value" },
+                                        { title: "Courier Charges" },
+                                        { title: "Payment Date" },
+                                        { title: "Order Source" }
+                                    ]}
+                                    selectable={false}
+                                >
+                                    {deliveriesData.map((row, index) => (
+                                        <IndexTable.Row id={row.trackingNo} key={row.trackingNo} position={index}>
+                                            <IndexTable.Cell>{row.srNo}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.deliveryDate}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.vchNo}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.bookingDate}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.orderNo}</IndexTable.Cell>
+                                            <IndexTable.Cell>
+                                                <BlockStack>
+                                                    <Text fontWeight="semibold" as="span">{row.customer}</Text>
+                                                    {row.mobNo && <Text variant="bodyXs" tone="subdued" as="span">Mob: {row.mobNo}</Text>}
+                                                </BlockStack>
+                                            </IndexTable.Cell>
+                                            <IndexTable.Cell>
+                                                <Text fontWeight="bold" as="span">{row.trackingNo}</Text>
+                                            </IndexTable.Cell>
+                                            <IndexTable.Cell>₹{row.codValue}</IndexTable.Cell>
+                                            <IndexTable.Cell>₹{row.courierCharges}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.paymentDate || "—"}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.source || "—"}</IndexTable.Cell>
                                         </IndexTable.Row>
                                     ))}
                                 </IndexTable>
