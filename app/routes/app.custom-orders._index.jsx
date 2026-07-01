@@ -52,7 +52,7 @@ export const action = async ({ request }) => {
   }
 
   if (intent === "create") {
-    let orderName = formData.get("orderName") || `CO-${Date.now()}`;
+    let orderName = formData.get("orderName");
     const customerName = formData.get("customerName");
     const customerEmail = formData.get("customerEmail");
     const customerPhone = formData.get("customerPhone");
@@ -91,14 +91,33 @@ export const action = async ({ request }) => {
     let linkGenerationError = null;
 
     try {
-      await prisma.customOrder.create({
-        data: {
-          orderName, customerName, customerEmail, customerPhone,
-          address1, address2, city, province, zip, country, phone: customerPhone,
-          paymentStatus, orderType, discountType: actualDiscountType, discountValue: actualDiscountValue,
-          partialPaymentAmount, totalAmount, items: itemsJson,
-          partialPaymentLink, remainingPaymentLink, fullPaymentLink
+      await prisma.$transaction(async (tx) => {
+        if (!orderName) {
+          const prefixSetting = await tx.setting.findUnique({ where: { key: "custom_order_prefix" } });
+          const serialSetting = await tx.setting.findUnique({ where: { key: "custom_order_start_serial" } });
+
+          const prefix = prefixSetting?.value !== undefined ? prefixSetting.value : "CO-";
+          const serialStr = serialSetting?.value !== undefined ? serialSetting.value : "1";
+          const serialNum = parseInt(serialStr, 10) || 1;
+
+          orderName = `${prefix}${serialNum}`;
+
+          await tx.setting.upsert({
+            where: { key: "custom_order_start_serial" },
+            update: { value: (serialNum + 1).toString() },
+            create: { key: "custom_order_start_serial", value: (serialNum + 1).toString() }
+          });
         }
+
+        await tx.customOrder.create({
+          data: {
+            orderName, customerName, customerEmail, customerPhone,
+            address1, address2, city, province, zip, country, phone: customerPhone,
+            paymentStatus, orderType, discountType: actualDiscountType, discountValue: actualDiscountValue,
+            partialPaymentAmount, totalAmount, items: itemsJson,
+            partialPaymentLink, remainingPaymentLink, fullPaymentLink
+          }
+        });
       });
       return json({ success: true, linkGenerationError });
     } catch (e) {

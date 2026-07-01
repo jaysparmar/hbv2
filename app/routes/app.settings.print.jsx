@@ -35,6 +35,9 @@ const KEYS = {
     invoice_signature: "invoice_signature",
     invoice_prefix: "invoice_prefix",
     invoice_start_serial: "invoice_start_serial",
+    // Custom Order
+    custom_order_prefix: "custom_order_prefix",
+    custom_order_start_serial: "custom_order_start_serial",
 };
 
 async function getSetting(key) {
@@ -109,6 +112,10 @@ export default function PrintSettingsPage() {
     const [invoicePrefix, setInvoicePrefix] = useState(data.invoice_prefix || "INV-");
     const [invoiceStartSerial, setInvoiceStartSerial] = useState(data.invoice_start_serial || "1000");
 
+    // Custom order fields
+    const [customOrderPrefix, setCustomOrderPrefix] = useState(data.custom_order_prefix || "CO-");
+    const [customOrderStartSerial, setCustomOrderStartSerial] = useState(data.custom_order_start_serial || "1");
+
     const [showBanner, setShowBanner] = useState(false);
 
     useEffect(() => {
@@ -138,6 +145,8 @@ export default function PrintSettingsPage() {
         setInvoiceSignature(data.invoice_signature);
         setInvoicePrefix(data.invoice_prefix || "INV-");
         setInvoiceStartSerial(data.invoice_start_serial || "1000");
+        setCustomOrderPrefix(data.custom_order_prefix || "CO-");
+        setCustomOrderStartSerial(data.custom_order_start_serial || "1");
     }, [data]);
 
     useEffect(() => {
@@ -177,6 +186,8 @@ export default function PrintSettingsPage() {
                 invoice_signature: invoiceSignature,
                 invoice_prefix: invoicePrefix,
                 invoice_start_serial: invoiceStartSerial,
+                custom_order_prefix: customOrderPrefix,
+                custom_order_start_serial: customOrderStartSerial,
             },
             { method: "post" }
         );
@@ -185,7 +196,7 @@ export default function PrintSettingsPage() {
         labelFromName, labelFromAddr1, labelFromAddr2, labelFromCity, labelFromProvince, labelFromZip, labelFromPhone,
         invoiceCompanyName, invoiceTitle, invoiceGstin, invoiceFooter, invoiceTerms,
         invoiceFromAddr1, invoiceFromAddr2, invoiceFromCity, invoiceFromProvince, invoiceFromZip, invoiceFromPhone, invoiceFromEmail, invoiceSignature,
-        invoicePrefix, invoiceStartSerial,
+        invoicePrefix, invoiceStartSerial, customOrderPrefix, customOrderStartSerial,
         submit,
     ]);
 
@@ -387,6 +398,42 @@ export default function PrintSettingsPage() {
                                         </DropZone>
                                     )}
                                 </BlockStack>
+                            </FormLayout>
+                        </BlockStack>
+                    </Card>
+                </Layout.Section>
+
+                {/* ─── Custom Order Numbering ─── */}
+                <Layout.Section>
+                    <Card>
+                        <BlockStack gap="500">
+                            <BlockStack gap="100">
+                                <Text variant="headingMd" as="h2">Custom Order Numbering</Text>
+                                <Text as="p" tone="subdued" variant="bodySm">
+                                    Applies only to new custom orders created without an order name — existing custom order numbers are not changed.
+                                </Text>
+                            </BlockStack>
+                            <Divider />
+                            <FormLayout>
+                                <FormLayout.Group>
+                                    <TextField
+                                        label="Order Number Prefix"
+                                        value={customOrderPrefix}
+                                        onChange={setCustomOrderPrefix}
+                                        placeholder="CO-"
+                                        autoComplete="off"
+                                        helpText="Prefix for auto-generated custom order numbers (e.g. 'CO-')."
+                                    />
+                                    <TextField
+                                        label="Next Order Number"
+                                        value={customOrderStartSerial}
+                                        onChange={setCustomOrderStartSerial}
+                                        type="number"
+                                        placeholder="1"
+                                        autoComplete="off"
+                                        helpText="The next custom order number (will increment automatically)."
+                                    />
+                                </FormLayout.Group>
                             </FormLayout>
                         </BlockStack>
                     </Card>
