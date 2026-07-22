@@ -3,7 +3,7 @@ import { useLoaderData, useSubmit, useNavigation, useSearchParams, useFetcher } 
 import {
     Page, Layout, Card, IndexTable, Text, Badge, Link, InlineStack,
     IndexFilters, useSetIndexFiltersMode, useIndexResourceState, ChoiceList,
-    Button, Modal, BlockStack, Banner, Icon
+    Button, Modal, BlockStack, Banner, Icon, Spinner
 } from "@shopify/polaris";
 import { ReceiptIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
@@ -11,6 +11,7 @@ import prisma from "../db.server";
 import { useState, useCallback, useRef, useEffect } from "react";
 import { printLabel } from "../utils/printLabel";
 import { printInvoice } from "../utils/printInvoice";
+import { buildParcelWhere } from "../utils/parcelFilters.server";
 
 const PARCELS_PER_PAGE = 25;
 
@@ -21,23 +22,7 @@ export const loader = async ({ request }) => {
     const dispatchStatusParam = url.searchParams.get("dispatchStatus") || "";
     const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
 
-    const AND = [];
-    if (q) {
-        AND.push({
-            OR: [
-                { orderName: { contains: q } },
-                { carrierName: { contains: q } },
-                { awbNumber: { contains: q } }
-            ]
-        });
-    }
-
-    if (dispatchStatusParam) {
-        const statuses = dispatchStatusParam.split(",");
-        AND.push({ dispatchStatus: { in: statuses } });
-    }
-
-    const where = AND.length > 0 ? { AND } : undefined;
+    const where = buildParcelWhere({ q, dispatchStatusParam });
 
     const [parcels, totalCount] = await Promise.all([
         prisma.parcel.findMany({
@@ -193,9 +178,15 @@ export default function ParcelsMaster() {
         }
     }, [invoiceFetcher.state, invoiceFetcher.data, invoiceParcelId, parcels]);
 
+    // Bulk print shipping labels state
+    const [bulkPrinting, setBulkPrinting] = useState(false);
+    const [bulkPrintError, setBulkPrintError] = useState(null);
+    const [selectAllAcrossPages, setSelectAllAcrossPages] = useState(false);
+
     useEffect(() => {
         setQueryValue(q);
         setDispatchStatusValue(dispatchStatusParam ? dispatchStatusParam.split(",") : []);
+        setSelectAllAcrossPages(false);
     }, [q, dispatchStatusParam]);
 
     // Clear error when modal closes / re-opens
@@ -290,7 +281,44 @@ export default function ParcelsMaster() {
     }
 
     const resourceName = { singular: "parcel", plural: "parcels" };
-    const { selectedResources, allResourcesSelected, handleSelectionChange } = useIndexResourceState(parcels);
+    const { selectedResources, allResourcesSelected, handleSelectionChange, clearSelection } = useIndexResourceState(
+        parcels,
+        { resourceIDResolver: (parcel) => parcel.id.toString() }
+    );
+
+    useEffect(() => {
+        if (!allResourcesSelected) setSelectAllAcrossPages(false);
+    }, [allResourcesSelected]);
+
+    const handleBulkPrintLabels = useCallback(async () => {
+        if (bulkPrinting) return;
+        setBulkPrintError(null);
+        setBulkPrinting(true);
+        try {
+            const params = new URLSearchParams();
+            if (selectAllAcrossPages) {
+                params.set("allPages", "1");
+                if (queryValue) params.set("q", queryValue);
+                if (dispatchStatusValue.length) params.set("dispatchStatus", dispatchStatusValue.join(","));
+            } else {
+                params.set("ids", selectedResources.join(","));
+            }
+            const response = await fetch(`/api/print-labels-bulk?${params.toString()}`);
+            if (!response.ok) {
+                const message = await response.text();
+                throw new Error(message || "Failed to generate shipping labels PDF.");
+            }
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, "_blank");
+            clearSelection();
+            setSelectAllAcrossPages(false);
+        } catch (err) {
+            setBulkPrintError(err.message || "Failed to generate shipping labels PDF.");
+        } finally {
+            setBulkPrinting(false);
+        }
+    }, [bulkPrinting, selectAllAcrossPages, queryValue, dispatchStatusValue, selectedResources, clearSelection]);
 
     const getStatusBadge = (status) => {
         switch (status.toLowerCase()) {
@@ -308,7 +336,12 @@ export default function ParcelsMaster() {
     };
 
     const rowMarkup = parcels.map((parcel, index) => (
-        <IndexTable.Row id={parcel.id.toString()} key={parcel.id} position={index}>
+        <IndexTable.Row
+            id={parcel.id.toString()}
+            key={parcel.id}
+            position={index}
+            selected={selectedResources.includes(parcel.id.toString())}
+        >
             <IndexTable.Cell>
                 <Link url={parcel.orderId.startsWith("custom-") ? `/app/custom-orders/${parcel.orderId.replace("custom-", "")}` : `/app/orders/${parcel.orderId.split("/").pop()}`}>
                     {parcel.orderName || parcel.orderId.split("/").pop()}
@@ -405,6 +438,41 @@ export default function ParcelsMaster() {
                             mode={mode}
                             setMode={setMode}
                         />
+                        {bulkPrinting && (
+                            <div style={{ padding: "12px 16px" }}>
+                                <Banner tone="info">
+                                    <InlineStack gap="200" align="center" blockAlign="center">
+                                        <Spinner size="small" />
+                                        <Text as="span">Generating shipping labels PDF… this may take a moment for large selections.</Text>
+                                    </InlineStack>
+                                </Banner>
+                            </div>
+                        )}
+                        {bulkPrintError && (
+                            <div style={{ padding: "12px 16px" }}>
+                                <Banner tone="critical" onDismiss={() => setBulkPrintError(null)}>
+                                    {bulkPrintError}
+                                </Banner>
+                            </div>
+                        )}
+                        {allResourcesSelected && totalCount > parcels.length && (
+                            <div style={{ padding: "12px 16px" }}>
+                                <Banner tone="info">
+                                    <InlineStack gap="200" align="center">
+                                        <Text as="span">
+                                            {selectAllAcrossPages
+                                                ? `All ${totalCount} parcels matching this search are selected.`
+                                                : `All ${parcels.length} parcels on this page are selected.`}
+                                        </Text>
+                                        {!selectAllAcrossPages && (
+                                            <Button variant="plain" onClick={() => setSelectAllAcrossPages(true)}>
+                                                Select all {totalCount} parcels matching this search
+                                            </Button>
+                                        )}
+                                    </InlineStack>
+                                </Banner>
+                            </div>
+                        )}
                         <IndexTable
                             resourceName={resourceName}
                             itemCount={parcels.length}
@@ -412,6 +480,13 @@ export default function ParcelsMaster() {
                                 allResourcesSelected ? "All" : selectedResources.length
                             }
                             onSelectionChange={handleSelectionChange}
+                            promotedBulkActions={[
+                                {
+                                    content: bulkPrinting ? "Generating PDF…" : "Print Shipping Labels",
+                                    onAction: handleBulkPrintLabels,
+                                    disabled: bulkPrinting,
+                                },
+                            ]}
                             headings={[
                                 { title: "Order ID" },
                                 { title: "Carrier" },
@@ -422,7 +497,7 @@ export default function ParcelsMaster() {
                                 { title: "Created At" },
                                 { title: "Actions" },
                             ]}
-                            selectable={false}
+                            selectable
                             loading={isLoading}
                         >
                             {rowMarkup}

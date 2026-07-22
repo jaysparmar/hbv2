@@ -20,16 +20,13 @@ export function numberToWords(num) {
 }
 
 /**
- * Generate the full HTML document for a shipping label.
+ * Compute the view-model fields shared by every shipping-label renderer
+ * (the browser-print HTML below, and the pdfmake bulk-PDF renderer).
+ * Keeping this in one place means both renderers always show the same data.
  *
- * @param {Object} params
- * @param {Object} params.order          - Shopify order object
- * @param {Object} params.shop           - Shopify shop object
- * @param {Object} params.parcel         - Parcel record
- * @param {Object} [params.printSettings] - Optional print settings from DB
- * @returns {string} Full HTML document string
+ * @param {Object} params - same as generateLabelHtml
  */
-export function generateLabelHtml({ order, shop, parcel, printSettings = {} }) {
+export function buildLabelViewModel({ order, shop, parcel, printSettings = {} }) {
   const s = printSettings;
   const codAmount = parcel?.valueOfRepayment ? parseFloat(parcel.valueOfRepayment) : 0;
   const isCOD = !isNaN(codAmount) && codAmount > 0;
@@ -66,6 +63,28 @@ export function generateLabelHtml({ order, shop, parcel, printSettings = {} }) {
     zip: s.label_from_zip || shop?.billingAddress?.zip || "",
     phone: s.label_from_phone || shop?.billingAddress?.phone || "",
   };
+
+  return {
+    codAmount, isCOD, currency, addr, cName, customerPhone, orderDate, products, fmt,
+    headerText, bnplLine1, bnplLine2, billerId, fromName, storeAddr,
+  };
+}
+
+/**
+ * Generate the full HTML document for a shipping label.
+ *
+ * @param {Object} params
+ * @param {Object} params.order          - Shopify order object
+ * @param {Object} params.shop           - Shopify shop object
+ * @param {Object} params.parcel         - Parcel record
+ * @param {Object} [params.printSettings] - Optional print settings from DB
+ * @returns {string} Full HTML document string
+ */
+export function generateLabelHtml({ order, shop, parcel, printSettings = {} }) {
+  const {
+    codAmount, isCOD, addr, cName, customerPhone, orderDate, products, fmt,
+    headerText, bnplLine1, bnplLine2, billerId, fromName, storeAddr,
+  } = buildLabelViewModel({ order, shop, parcel, printSettings });
 
   return `<!DOCTYPE html>
 <html><head>
