@@ -39,13 +39,13 @@ export function buildLabelViewModel({ order, shop, parcel, printSettings = {} })
   const orderDate = new Date(order.createdAt).toLocaleDateString("en-IN");
   const products = order.lineItems.edges.map(({ node }) => node);
   if (parcel?.addons) {
-      parcel.addons.forEach(pa => {
-          products.push({
-              title: `${pa.addon.name} (Free Add-on)`,
-              quantity: pa.quantity,
-              originalTotalSet: { shopMoney: { amount: "0.00", currencyCode: currency } }
-          });
+    parcel.addons.forEach(pa => {
+      products.push({
+        title: `${pa.addon.name} (Free Add-on)`,
+        quantity: pa.quantity,
+        originalTotalSet: { shopMoney: { amount: "0.00", currencyCode: currency } }
       });
+    });
   }
   const fmt = (amt) => new Intl.NumberFormat("en-IN", { style: "currency", currency }).format(amt);
 
@@ -93,8 +93,8 @@ export function generateLabelHtml({ order, shop, parcel, printSettings = {} }) {
 <style>
 @page { size: 105mm 148mm; margin: 3mm; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: Arial, sans-serif; font-size: 8.5pt; width: 99mm; }
-.label { border: 1.5pt solid #000; padding: 3mm; width: 99mm; min-height: 140mm; }
+body { font-family: Arial, sans-serif; font-size: 8.5pt; width: 99mm; margin: 0 auto; }
+.label { border: 1.5pt solid #000; padding: 3mm; width: 99mm; }
 .header { background: #000; color: #fff; text-align: center; padding: 2mm 1mm; font-size: 10pt; font-weight: bold; margin-bottom: 2mm; }
 .cod-box { border: 2pt solid #000; padding: 2mm; margin-bottom: 2mm; text-align: center; }
 .cod-amount { font-size: 13pt; font-weight: bold; margin: 1mm 0; }

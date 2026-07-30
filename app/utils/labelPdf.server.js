@@ -25,7 +25,7 @@ const mm = (v) => v * MM_TO_PT;
 
 const PAGE_WIDTH = mm(105);
 const PAGE_HEIGHT = mm(148);
-const PAGE_MARGIN = mm(3);
+const PAGE_MARGIN = mm(6);
 const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2;
 
 function box(stack, margin = [0, 0, 0, 4]) {
