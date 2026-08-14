@@ -42,32 +42,64 @@ export async function loader({ request, params }) {
         const parcel = dispatch.parcels[i];
 
         let order = null;
-        try {
-            const orderResponse = await admin.graphql(`
-                query getOrder($id: ID!) {
-                    order(id: $id) {
-                        name
-                        totalOutstandingSet { shopMoney { amount } }
-                        customer { email firstName lastName defaultPhoneNumber { phoneNumber } }
-                        shippingAddress {
+        if (parcel.orderId?.startsWith("custom-")) {
+            const customId = parseInt(parcel.orderId.replace("custom-", ""), 10);
+            const localOrder = await prisma.customOrder.findUnique({ where: { id: customId } });
+            if (localOrder) {
+                order = {
+                    name: localOrder.orderName,
+                    totalOutstandingSet: {
+                        shopMoney: {
+                            amount: localOrder.paymentStatus === "FULLY PAID"
+                                ? "0.00"
+                                : Math.max(0, localOrder.totalAmount - (localOrder.partialPaymentAmount || 0)).toFixed(2)
+                        }
+                    },
+                    customer: {
+                        email: localOrder.customerEmail || "",
+                        firstName: (localOrder.customerName || "").split(" ")[0] || "",
+                        lastName: (localOrder.customerName || "").split(" ").slice(1).join(" ") || "",
+                        defaultPhoneNumber: { phoneNumber: localOrder.customerPhone || "" }
+                    },
+                    shippingAddress: {
+                        name: localOrder.customerName || "",
+                        address1: localOrder.address1 || "",
+                        address2: localOrder.address2 || "",
+                        city: localOrder.city || "",
+                        province: localOrder.province || "",
+                        zip: localOrder.zip || "",
+                        phone: localOrder.customerPhone || ""
+                    }
+                };
+            }
+        } else {
+            try {
+                const orderResponse = await admin.graphql(`
+                    query getOrder($id: ID!) {
+                        order(id: $id) {
                             name
-                            firstName
-                            lastName
-                            address1
-                            address2
-                            city
-                            province
-                            zip
-                            phone
+                            totalOutstandingSet { shopMoney { amount } }
+                            customer { email firstName lastName defaultPhoneNumber { phoneNumber } }
+                            shippingAddress {
+                                name
+                                firstName
+                                lastName
+                                address1
+                                address2
+                                city
+                                province
+                                zip
+                                phone
+                            }
                         }
                     }
-                }
-            `, { variables: { id: parcel.orderId } });
+                `, { variables: { id: parcel.orderId } });
 
-            const orderJson = await orderResponse.json();
-            order = orderJson.data?.order;
-        } catch (err) {
-            console.error(err);
+                const orderJson = await orderResponse.json();
+                order = orderJson.data?.order;
+            } catch (err) {
+                console.error(err);
+            }
         }
 
         if (!order) continue;
