@@ -198,6 +198,8 @@ model Delivery {
   billDate         DateTime?
   contractId       String?
   contractMode     String?
+  parcelCodAmount     Float?
+  codCollectionStatus String    @default("pending")
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

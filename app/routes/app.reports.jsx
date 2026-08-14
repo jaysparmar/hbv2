@@ -16,7 +16,8 @@ import {
     Spinner,
     Banner,
     Tabs,
-    Badge
+    Badge,
+    Checkbox
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -169,6 +170,7 @@ export const loader = async ({ request }) => {
     const startDate = url.searchParams.get("startDate") || getDefaultStartDate();
     const endDate = url.searchParams.get("endDate") || getDefaultEndDate();
     const reportType = url.searchParams.get("reportType") || "sales";
+    const excludePending = url.searchParams.get("excludePending") === "true";
 
     // Validate inputs
     if (!dateRegex.test(startDate) || !dateRegex.test(endDate)) {
@@ -215,38 +217,34 @@ export const loader = async ({ request }) => {
 
     // --- PENDING DELIVERY REPORT ---
     if (reportType === "pending_deliveries") {
-        const deliveries = await prisma.delivery.findMany({
+        const parcels = await prisma.parcel.findMany({
             where: {
                 createdAt: {
                     gte: new Date(`${startDate}T00:00:00Z`),
                     lte: new Date(`${endDate}T23:59:59Z`),
                 },
-                deliveredDate: null
+                dispatchStatus: excludePending ? "dispatched" : { in: ["pending", "dispatched"] }
             },
             orderBy: {
                 createdAt: "desc"
             }
         });
 
-        const deliveriesData = deliveries.map((row, idx) => {
+        const deliveriesData = parcels.map((row, idx) => {
             return {
                 srNo: idx + 1,
-                vchNo: row.codInvoiceNumber || row.id.toString(),
+                orderNo: row.orderName || "",
+                trackingNo: row.awbNumber || "",
+                carrier: row.carrierName || "",
+                codValue: parseFloat(row.valueOfRepayment) || 0,
                 date: formatDDMMYYYY(row.createdAt),
-                orderNo: row.contractId || "",
-                customer: row.customerName || "",
-                mobNo: row.customerId || "",
-                trackingNo: row.articleNumber || "",
-                codValue: row.codValue || 0,
-                courierCharges: row.codCommission || 0,
-                source: row.contractMode || "",
-                completed: "No"
+                status: row.dispatchStatus,
             };
         });
 
         const totalRemaining = deliveriesData.reduce((sum, r) => sum + r.codValue, 0);
 
-        return json({ deliveriesData, totalRemaining, reportType, startDate, endDate });
+        return json({ deliveriesData, totalRemaining, reportType, startDate, endDate, excludePending });
     }
 
     // --- DAILY DELIVERIES REPORT ---
@@ -366,6 +364,7 @@ export default function Reports() {
     const reportType = data.reportType || "sales";
     const [startDate, setStartDate] = useState(data.startDate || getDefaultStartDate());
     const [endDate, setEndDate] = useState(data.endDate || getDefaultEndDate());
+    const [excludePending, setExcludePending] = useState(data.excludePending || false);
     const [isExporting, setIsExporting] = useState(false);
     const [selectedTab, setSelectedTab] = useState(
         reportType === "payments" ? 1 :
@@ -410,9 +409,10 @@ export default function Reports() {
             fd.append("reportType", type);
             fd.append("startDate", startDate);
             fd.append("endDate", endDate);
+            if (type === "pending_deliveries") fd.append("excludePending", excludePending.toString());
             submit(fd, { method: "get" });
         },
-        [startDate, endDate, submit]
+        [startDate, endDate, excludePending, submit]
     );
 
     const handlePreview = useCallback(() => {
@@ -425,8 +425,9 @@ export default function Reports() {
         fd.append("reportType", type);
         fd.append("startDate", startDate);
         fd.append("endDate", endDate);
+        if (type === "pending_deliveries") fd.append("excludePending", excludePending.toString());
         submit(fd, { method: "get" });
-    }, [startDate, endDate, selectedTab, submit]);
+    }, [startDate, endDate, selectedTab, excludePending, submit]);
 
     const handleExport = useCallback(async () => {
         setIsExporting(true);
@@ -445,7 +446,9 @@ export default function Reports() {
         }
 
         try {
-            const response = await fetch(`/api/reports/download?reportType=${type}&startDate=${startDate}&endDate=${endDate}`);
+            let downloadUrl = `/api/reports/download?reportType=${type}&startDate=${startDate}&endDate=${endDate}`;
+            if (type === "pending_deliveries") downloadUrl += `&excludePending=${excludePending}`;
+            const response = await fetch(downloadUrl);
             if (!response.ok) throw new Error("Failed to export report");
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -461,7 +464,7 @@ export default function Reports() {
         } finally {
             setIsExporting(false);
         }
-    }, [startDate, endDate, selectedTab]);
+    }, [startDate, endDate, selectedTab, excludePending]);
 
     if (data.error) {
         return (
@@ -526,6 +529,14 @@ export default function Reports() {
                                         autoComplete="off"
                                     />
                                 </FormLayout.Group>
+                                {selectedTab === 2 && (
+                                    <Checkbox
+                                        label="Exclude pending"
+                                        helpText="Only show parcels that have been dispatched, hiding ones still awaiting dispatch."
+                                        checked={excludePending}
+                                        onChange={setExcludePending}
+                                    />
+                                )}
                                 <InlineStack gap="300">
                                     <Button onClick={handlePreview} loading={isSubmitting}>
                                         Preview Report
@@ -612,38 +623,29 @@ export default function Reports() {
                                     itemCount={deliveriesData.length}
                                     headings={[
                                         { title: "SR. NO." },
-                                        { title: "Vch. No." },
-                                        { title: "Booking Date" },
                                         { title: "Order No." },
-                                        { title: "Customer" },
                                         { title: "Tracking No. (AWB)" },
-                                        { title: "COD Value" },
-                                        { title: "Courier Charges" },
-                                        { title: "Order Source" },
+                                        { title: "Carrier" },
+                                        { title: "COD Amount" },
+                                        { title: "Booking Date" },
                                         { title: "Status" }
                                     ]}
                                     selectable={false}
                                 >
                                     {deliveriesData.map((row, index) => (
-                                        <IndexTable.Row id={row.trackingNo} key={row.trackingNo} position={index}>
+                                        <IndexTable.Row id={row.trackingNo || row.srNo.toString()} key={`${row.trackingNo}-${index}`} position={index}>
                                             <IndexTable.Cell>{row.srNo}</IndexTable.Cell>
-                                            <IndexTable.Cell>{row.vchNo}</IndexTable.Cell>
-                                            <IndexTable.Cell>{row.date}</IndexTable.Cell>
                                             <IndexTable.Cell>{row.orderNo}</IndexTable.Cell>
                                             <IndexTable.Cell>
-                                                <BlockStack>
-                                                    <Text fontWeight="semibold" as="span">{row.customer}</Text>
-                                                    {row.mobNo && <Text variant="bodyXs" tone="subdued" as="span">Mob: {row.mobNo}</Text>}
-                                                </BlockStack>
+                                                <Text fontWeight="bold" as="span">{row.trackingNo || "—"}</Text>
                                             </IndexTable.Cell>
-                                            <IndexTable.Cell>
-                                                <Text fontWeight="bold" as="span">{row.trackingNo}</Text>
-                                            </IndexTable.Cell>
+                                            <IndexTable.Cell>{row.carrier || "—"}</IndexTable.Cell>
                                             <IndexTable.Cell>₹{row.codValue}</IndexTable.Cell>
-                                            <IndexTable.Cell>₹{row.courierCharges}</IndexTable.Cell>
-                                            <IndexTable.Cell>{row.source || "—"}</IndexTable.Cell>
+                                            <IndexTable.Cell>{row.date}</IndexTable.Cell>
                                             <IndexTable.Cell>
-                                                <Badge tone="warning">Pending</Badge>
+                                                <Badge tone={row.status === "dispatched" ? "info" : "warning"}>
+                                                    {row.status === "dispatched" ? "Dispatched" : "Pending"}
+                                                </Badge>
                                             </IndexTable.Cell>
                                         </IndexTable.Row>
                                     ))}

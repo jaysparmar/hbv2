@@ -134,6 +134,7 @@ export const loader = async ({ request }) => {
     const startDate = url.searchParams.get("startDate");
     const endDate = url.searchParams.get("endDate");
     const reportType = url.searchParams.get("reportType") || "sales";
+    const excludePending = url.searchParams.get("excludePending") === "true";
 
     // Validate inputs
     if (!startDate || !endDate || !dateRegex.test(startDate) || !dateRegex.test(endDate)) {
@@ -242,13 +243,13 @@ export const loader = async ({ request }) => {
 
     // --- PENDING DELIVERY REPORT ---
     if (reportType === "pending_deliveries") {
-        const deliveries = await prisma.delivery.findMany({
+        const parcels = await prisma.parcel.findMany({
             where: {
                 createdAt: {
                     gte: new Date(`${startDate}T00:00:00Z`),
                     lte: new Date(`${endDate}T23:59:59Z`),
                 },
-                deliveredDate: null
+                dispatchStatus: excludePending ? "dispatched" : { in: ["pending", "dispatched"] }
             },
             orderBy: {
                 createdAt: "desc"
@@ -258,56 +259,29 @@ export const loader = async ({ request }) => {
         const aoa = [
             [
                 "SR. NO.",
-                "Vch. No.",
-                "Booking Date",
                 "Order No.",
-                "Customer",
-                "Mob. No.",
-                "City",
-                "Pin Code No.",
-                "State",
-                "Tracking No.",
-                "COD Value",
-                "Courier Charges",
-                "Order Source",
+                "Tracking No. (AWB)",
+                "Carrier",
+                "COD Amount",
+                "Booking Date",
                 "Status"
             ]
         ];
 
-        deliveries.forEach((row, idx) => {
-            let city = "";
-            let state = "";
-            if (row.officeName) {
-                const parts = row.officeName.split(", ");
-                if (parts.length >= 2) {
-                    city = parts[0];
-                    state = parts.slice(1).join(", ");
-                } else {
-                    city = row.officeName;
-                }
-            }
-
+        parcels.forEach((row, idx) => {
             aoa.push([
                 idx + 1,
-                row.codInvoiceNumber || row.id.toString(),
+                row.orderName || "",
+                row.awbNumber || "",
+                row.carrierName || "",
+                parseFloat(row.valueOfRepayment) || 0,
                 formatDDMMYYYY(row.createdAt),
-                row.contractId || "",
-                row.customerName || "",
-                row.customerId || "",
-                city,
-                row.officeId || "",
-                state,
-                row.articleNumber || "",
-                row.codValue || 0,
-                row.codCommission || 0,
-                row.contractMode || "",
-                "Pending"
+                row.dispatchStatus === "dispatched" ? "Dispatched" : "Pending"
             ]);
         });
 
-        const totalCodValue = deliveries.reduce((sum, r) => sum + (r.codValue || 0), 0);
-        const totalCourierCharges = deliveries.reduce((sum, r) => sum + (r.codCommission || 0), 0);
-        aoa.push(["TOTAL PENDING", "", "", "", "", "", "", "", "", "", totalCodValue, totalCourierCharges, "", ""]);
+        const totalCodValue = parcels.reduce((sum, r) => sum + (parseFloat(r.valueOfRepayment) || 0), 0);
+        aoa.push(["TOTAL PENDING", "", "", "", totalCodValue, "", ""]);
 
         const worksheet = xlsx.utils.aoa_to_sheet(aoa);
         const workbook = xlsx.utils.book_new();
