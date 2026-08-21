@@ -9,6 +9,7 @@ import { SearchIcon, DeleteIcon, ViewIcon, CreditCardIcon, ReceiptIcon, Delivery
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { INDIAN_STATES } from "../utils/indianStates";
 
 // --- LOADER ---
 export const loader = async ({ request }) => {
@@ -253,16 +254,6 @@ export default function CustomOrders() {
     </Page>
   );
 }
-
-const INDIAN_STATES = [
-  "Andaman and Nicobar Islands", "Andhra Pradesh", "Arunachal Pradesh", "Assam",
-  "Bihar", "Chandigarh", "Chhattisgarh", "Dadra and Nagar Haveli and Daman and Diu",
-  "Delhi", "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jammu and Kashmir",
-  "Jharkhand", "Karnataka", "Kerala", "Ladakh", "Lakshadweep", "Madhya Pradesh",
-  "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland", "Odisha",
-  "Puducherry", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana",
-  "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal"
-];
 
 // --- MODAL COMPONENT ---
 function CreateOrderModal({ open, onClose }) {

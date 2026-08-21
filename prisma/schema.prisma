@@ -73,6 +73,10 @@ model Parcel {
   dispatchmentId Int?
   dispatchment   Dispatchment? @relation(fields: [dispatchmentId], references: [id])
   addons         ParcelAddon[]
+  returnedAt             DateTime?
+  shopifyReturnId        String?
+  shopifyReturnError     String?       @db.Text
+  returnedItemsSnapshot  String?       @db.Text
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 }

@@ -2,14 +2,15 @@ import { json, unstable_composeUploadHandlers, unstable_createFileUploadHandler,
 import { useLoaderData, useNavigate, useSubmit, useNavigation, useFetcher, useSearchParams } from "@remix-run/react";
 import {
   Page, Layout, Card, Text, Button, BlockStack, InlineStack, Badge,
-  Divider, Box, Modal, FormLayout, Select, TextField, Banner, List, Icon, Spinner
+  Divider, Box, Modal, FormLayout, Select, TextField, Banner, List, Icon, Spinner, Autocomplete
 } from "@shopify/polaris";
-import { DeliveryIcon, ReceiptIcon, CheckCircleIcon, DeleteIcon, LinkIcon } from "@shopify/polaris-icons";
+import { DeliveryIcon, ReceiptIcon, CheckCircleIcon, DeleteIcon, LinkIcon, SearchIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { useState, useEffect, useCallback } from "react";
 import { printLabel } from "../utils/printLabel";
 import { printInvoice } from "../utils/printInvoice";
+import { INDIAN_STATES } from "../utils/indianStates";
 
 // --- LOADER ---
 export const loader = async ({ request, params }) => {
@@ -217,6 +218,52 @@ export const action = async ({ request, params }) => {
     return json({ success: true, parcel });
   }
 
+  if (intent === "update") {
+    const order = await prisma.customOrder.findUnique({ where: { id: orderId } });
+    if (!order) return json({ error: "Order not found" }, { status: 404 });
+
+    const customerName = formData.get("customerName");
+    const customerEmail = formData.get("customerEmail");
+    const customerPhone = formData.get("customerPhone");
+    const address1 = formData.get("address1");
+    const address2 = formData.get("address2");
+    const city = formData.get("city");
+    const province = formData.get("province");
+    const zip = formData.get("zip");
+    const country = formData.get("country");
+    const orderType = formData.get("orderType");
+
+    const data = {
+      customerName, customerEmail, customerPhone, phone: customerPhone,
+      address1, address2, city, province, zip, country, orderType,
+    };
+
+    // Products/discount only editable while no payment has been recorded yet.
+    const hasPayment = order.partialPaymentAmount > 0 || order.paymentStatus !== "UNPAID";
+    if (!hasPayment) {
+      const itemsJson = formData.get("items");
+      if (itemsJson !== null) {
+        const discountType = formData.get("discountType");
+        const discountValue = parseFloat(formData.get("discountValue") || "0");
+        const items = JSON.parse(itemsJson);
+        let productTotal = 0;
+        items.forEach(i => { productTotal += parseFloat(i.price || 0) * parseInt(i.quantity || 1, 10); });
+        let totalAmount = productTotal;
+        if (discountType === "fixed") totalAmount -= discountValue;
+        else if (discountType === "percent") totalAmount -= (totalAmount * discountValue) / 100;
+        if (totalAmount < 0) totalAmount = 0;
+
+        data.items = itemsJson;
+        data.discountType = discountType !== "none" ? discountType : null;
+        data.discountValue = discountValue;
+        data.totalAmount = totalAmount;
+      }
+    }
+
+    await prisma.customOrder.update({ where: { id: orderId }, data });
+    return json({ success: true, intent: "update" });
+  }
+
   if (intent === "delete") {
     await prisma.customOrder.delete({ where: { id: orderId } });
     return json({ success: true });
@@ -235,6 +282,8 @@ export default function CustomOrderDetail() {
 
   const [fulfillWizardOpen, setFulfillWizardOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const hasPayment = order.partialPaymentAmount > 0 || order.paymentStatus !== "UNPAID";
 
   // Add Payment Modal State
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
@@ -337,6 +386,7 @@ export default function CustomOrderDetail() {
         } : undefined
       }
       secondaryActions={[
+        { content: "Edit", onAction: () => setEditModalOpen(true) },
         { content: "Print Invoice", onAction: () => window.open(`/api/custom-invoice/${order.id}`, '_blank'), disabled: !invoice },
         ...(order.paymentStatus !== "FULLY PAID" ? [{ content: "Add Payment", onAction: () => setAddPaymentOpen(true) }] : []),
         { content: "Delete", destructive: true, onAction: () => setDeleteModalOpen(true) }
@@ -580,6 +630,14 @@ export default function CustomOrderDetail() {
         </Modal.Section>
       </Modal>
 
+      {/* Edit Order Modal */}
+      <EditOrderModal
+        open={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+        order={order}
+        hasPayment={hasPayment}
+      />
+
       {/* Local Fulfillment Wizard */}
       <CustomFulfillmentWizard
         open={fulfillWizardOpen}
@@ -611,6 +669,248 @@ export default function CustomOrderDetail() {
         </Modal.Section>
       </Modal>
     </Page>
+  );
+}
+
+// --- EDIT ORDER MODAL ---
+function EditOrderModal({ open, onClose, order, hasPayment }) {
+  const fetcher = useFetcher();
+  const searchFetcher = useFetcher();
+
+  const [customerName, setCustomerName] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [address1, setAddress1] = useState("");
+  const [address2, setAddress2] = useState("");
+  const [city, setCity] = useState("");
+  const [province, setProvince] = useState("");
+  const [zip, setZip] = useState("");
+  const [country, setCountry] = useState("IN");
+  const [orderType, setOrderType] = useState("Standard");
+
+  const [items, setItems] = useState([]);
+  const [discountType, setDiscountType] = useState("none");
+  const [discountValue, setDiscountValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setCustomerName(order.customerName || "");
+      setCustomerEmail(order.customerEmail || "");
+      setCustomerPhone(order.customerPhone || "");
+      setAddress1(order.address1 || "");
+      setAddress2(order.address2 || "");
+      setCity(order.city || "");
+      setProvince(order.province || "");
+      setZip(order.zip || "");
+      setCountry(order.country || "IN");
+      setOrderType(order.orderType || "Standard");
+      setItems(order.items ? JSON.parse(order.items) : []);
+      setDiscountType(order.discountType || "none");
+      setDiscountValue(order.discountValue ? order.discountValue.toString() : "");
+      setSearchQuery("");
+    }
+  }, [open, order]);
+
+  useEffect(() => {
+    if (searchQuery.length >= 2) {
+      searchFetcher.submit({ q: searchQuery }, { method: "get", action: "/app/api/products" });
+    }
+  }, [searchQuery]);
+
+  const searchResults = searchFetcher.data?.products || [];
+  const options = searchResults.flatMap(p =>
+    p.variants.map(v => ({
+      value: v.id,
+      label: `${p.title} - ${v.title} (₹${v.price})`,
+      product: p,
+      variant: v
+    }))
+  );
+
+  const handleSelectProduct = (selected) => {
+    const selectedVariantId = selected[0];
+    const option = options.find(o => o.value === selectedVariantId);
+    if (!option) return;
+
+    setItems(prev => {
+      const existing = prev.find(i => i.variantId === selectedVariantId);
+      if (existing) {
+        return prev.map(i => i.variantId === selectedVariantId ? { ...i, quantity: i.quantity + 1 } : i);
+      }
+      return [...prev, {
+        productId: option.product.id,
+        variantId: option.variant.id,
+        title: `${option.product.title} - ${option.variant.title}`,
+        price: parseFloat(option.variant.price),
+        quantity: 1
+      }];
+    });
+    setSearchQuery("");
+  };
+
+  const textFieldSearch = (
+    <Autocomplete.TextField
+      onChange={setSearchQuery}
+      value={searchQuery}
+      prefix={<Icon source={SearchIcon} tone="base" />}
+      placeholder="Search products..."
+      autoComplete="off"
+    />
+  );
+
+  const productTotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  let dVal = parseFloat(discountValue) || 0;
+  let totalAmount = productTotal;
+  if (discountType === "fixed") totalAmount -= dVal;
+  else if (discountType === "percent") totalAmount -= (totalAmount * dVal) / 100;
+  if (totalAmount < 0) totalAmount = 0;
+
+  const handleSave = () => {
+    const fd = new FormData();
+    fd.append("intent", "update");
+    fd.append("customerName", customerName);
+    fd.append("customerEmail", customerEmail);
+    fd.append("customerPhone", customerPhone);
+    fd.append("address1", address1);
+    fd.append("address2", address2);
+    fd.append("city", city);
+    fd.append("province", province);
+    fd.append("zip", zip);
+    fd.append("country", country);
+    fd.append("orderType", orderType);
+    if (!hasPayment) {
+      fd.append("items", JSON.stringify(items));
+      fd.append("discountType", discountType);
+      fd.append("discountValue", discountValue || "0");
+    }
+    fetcher.submit(fd, { method: "post" });
+  };
+
+  useEffect(() => {
+    if (fetcher.data?.success && fetcher.data?.intent === "update") {
+      shopify.toast.show("Order updated");
+      onClose();
+    }
+  }, [fetcher.data, onClose]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Edit Order - ${order.orderName}`}
+      primaryAction={{
+        content: "Save Changes",
+        onAction: handleSave,
+        loading: fetcher.state === "submitting",
+        disabled: !customerName || !customerPhone || !address1 || !city || !zip
+      }}
+      secondaryActions={[{ content: "Cancel", onAction: onClose }]}
+      large
+    >
+      <Modal.Section>
+        {fetcher.data?.error && <Banner tone="critical"><p>{fetcher.data.error}</p></Banner>}
+        <BlockStack gap="400">
+          <FormLayout>
+            <Select label="Order Type" options={[{ label: "Standard", value: "Standard" }, { label: "PPCOD", value: "PPCOD" }, { label: "Advance Payment", value: "Advance Payment" }]} value={orderType} onChange={setOrderType} />
+            <FormLayout.Group>
+              <TextField label="Customer Name" value={customerName} onChange={setCustomerName} autoComplete="off" />
+              <TextField label="Customer Email" value={customerEmail} onChange={setCustomerEmail} autoComplete="off" />
+            </FormLayout.Group>
+            <TextField label="Customer Phone" value={customerPhone} onChange={setCustomerPhone} autoComplete="off" />
+          </FormLayout>
+          <FormLayout>
+            <TextField label="Address 1" value={address1} onChange={setAddress1} autoComplete="off" />
+            <TextField label="Address 2" value={address2} onChange={setAddress2} autoComplete="off" />
+            <FormLayout.Group>
+              <TextField label="City" value={city} onChange={setCity} autoComplete="off" />
+              <Select
+                label="Province/State"
+                options={[{ label: "Select State...", value: "" }, ...INDIAN_STATES.map(s => ({ label: s, value: s }))]}
+                value={province}
+                onChange={setProvince}
+              />
+            </FormLayout.Group>
+            <FormLayout.Group>
+              <TextField label="Postal Code" value={zip} onChange={setZip} autoComplete="off" />
+              <TextField label="Country" value={country} onChange={setCountry} autoComplete="off" />
+            </FormLayout.Group>
+          </FormLayout>
+
+          <Divider />
+
+          <Text variant="headingMd" as="h3">Products</Text>
+          {hasPayment ? (
+            <BlockStack gap="200">
+              <Banner tone="info"><p>Products can't be edited after a payment has been recorded.</p></Banner>
+              {items.map((item, i) => (
+                <InlineStack key={i} align="space-between">
+                  <Text as="span">{item.quantity} x {item.title}</Text>
+                  <Text as="span">₹{(item.price * item.quantity).toFixed(2)}</Text>
+                </InlineStack>
+              ))}
+              <InlineStack align="space-between">
+                <Text variant="headingSm" as="h4">Total Amount</Text>
+                <Text variant="headingSm" as="h4">₹{order.totalAmount.toFixed(2)}</Text>
+              </InlineStack>
+            </BlockStack>
+          ) : (
+            <BlockStack gap="400">
+              <Autocomplete options={options} selected={[]} onSelect={handleSelectProduct} textField={textFieldSearch} />
+
+              {items.length > 0 && (
+                <Box padding="300" background="bg-surface-secondary" borderRadius="200">
+                  <BlockStack gap="300">
+                    {items.map((item, index) => (
+                      <Box key={item.variantId} padding="200" background="bg-surface" borderRadius="200" borderWidth="025" borderColor="border">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text as="span">{item.title}</Text>
+                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <Text as="span">₹{(item.price * item.quantity).toFixed(2)}</Text>
+                            <div style={{ width: '80px' }}>
+                              <TextField
+                                type="number" min={1} value={item.quantity.toString()}
+                                onChange={(val) => {
+                                  const newItems = [...items];
+                                  newItems[index].quantity = Math.max(1, parseInt(val, 10) || 1);
+                                  setItems(newItems);
+                                }}
+                                autoComplete="off"
+                              />
+                            </div>
+                            <Button icon={DeleteIcon} tone="critical" variant="plain" onClick={() => setItems(items.filter((_, i) => i !== index))} />
+                          </div>
+                        </div>
+                      </Box>
+                    ))}
+
+                    <Divider />
+
+                    <FormLayout>
+                      <FormLayout.Group>
+                        <Select
+                          label="Add Discount"
+                          options={[{ label: "None", value: "none" }, { label: "Fixed Amount (₹)", value: "fixed" }, { label: "Percentage (%)", value: "percent" }]}
+                          value={discountType} onChange={setDiscountType}
+                        />
+                        {discountType !== "none" && (
+                          <TextField label="Discount Value" type="number" value={discountValue} onChange={setDiscountValue} autoComplete="off" />
+                        )}
+                      </FormLayout.Group>
+                    </FormLayout>
+
+                    <div style={{ borderTop: "1px solid var(--p-color-border)", paddingTop: "12px", textAlign: "right" }}>
+                      <Text as="p" tone="subdued">Subtotal: ₹{productTotal.toFixed(2)}</Text>
+                      <Text variant="headingMd" as="h3">Grand Total: ₹{totalAmount.toFixed(2)}</Text>
+                    </div>
+                  </BlockStack>
+                </Box>
+              )}
+            </BlockStack>
+          )}
+        </BlockStack>
+      </Modal.Section>
+    </Modal>
   );
 }
 
