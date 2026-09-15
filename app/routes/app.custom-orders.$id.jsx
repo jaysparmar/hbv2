@@ -222,6 +222,11 @@ export const action = async ({ request, params }) => {
     const order = await prisma.customOrder.findUnique({ where: { id: orderId } });
     if (!order) return json({ error: "Order not found" }, { status: 404 });
 
+    const parcelCount = await prisma.parcel.count({ where: { orderId: `custom-${orderId}` } });
+    if (parcelCount > 0) {
+      return json({ error: "This order has parcels attached to it. Delete all parcels before editing the order.", intent: "update" }, { status: 400 });
+    }
+
     const customerName = formData.get("customerName");
     const customerEmail = formData.get("customerEmail");
     const customerPhone = formData.get("customerPhone");
@@ -269,6 +274,27 @@ export const action = async ({ request, params }) => {
     return json({ success: true });
   }
 
+  if (intent === "deleteParcel") {
+    const parcelId = parseInt(formData.get("parcelId"), 10);
+    const parcel = await prisma.parcel.findUnique({ where: { id: parcelId } });
+
+    if (!parcel || parcel.orderId !== `custom-${orderId}`) {
+      return json({ error: "Parcel not found.", intent: "deleteParcel" }, { status: 404 });
+    }
+    if (parcel.dispatchmentId !== null) {
+      return json({ error: "This parcel has already been dispatched and cannot be deleted.", intent: "deleteParcel" }, { status: 400 });
+    }
+
+    await prisma.parcel.delete({ where: { id: parcelId } });
+
+    const remaining = await prisma.parcel.count({ where: { orderId: `custom-${orderId}` } });
+    if (remaining === 0) {
+      await prisma.customOrder.update({ where: { id: orderId }, data: { fulfillmentStatus: "UNFULFILLED" } });
+    }
+
+    return json({ success: true, intent: "deleteParcel" });
+  }
+
   return json({ error: "Invalid intent" }, { status: 400 });
 };
 
@@ -283,7 +309,29 @@ export default function CustomOrderDetail() {
   const [fulfillWizardOpen, setFulfillWizardOpen] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [parcelToDelete, setParcelToDelete] = useState(null);
   const hasPayment = order.partialPaymentAmount > 0 || order.paymentStatus !== "UNPAID";
+  const hasParcels = parcels.length > 0;
+  const hasDispatchedParcel = parcels.some(p => p.dispatchmentId !== null);
+  const canEditOrder = !hasParcels;
+
+  const deleteParcelFetcher = useFetcher();
+  const handleDeleteParcel = useCallback(() => {
+    if (!parcelToDelete) return;
+    const fd = new FormData();
+    fd.append("intent", "deleteParcel");
+    fd.append("parcelId", parcelToDelete.id.toString());
+    deleteParcelFetcher.submit(fd, { method: "post" });
+    setParcelToDelete(null);
+  }, [parcelToDelete, deleteParcelFetcher]);
+
+  useEffect(() => {
+    if (deleteParcelFetcher.data?.success && deleteParcelFetcher.data?.intent === "deleteParcel") {
+      shopify.toast.show("Parcel deleted");
+    } else if (deleteParcelFetcher.data?.error && deleteParcelFetcher.data?.intent === "deleteParcel") {
+      shopify.toast.show(deleteParcelFetcher.data.error, { isError: true });
+    }
+  }, [deleteParcelFetcher.data]);
 
   // Add Payment Modal State
   const [addPaymentOpen, setAddPaymentOpen] = useState(false);
@@ -386,7 +434,7 @@ export default function CustomOrderDetail() {
         } : undefined
       }
       secondaryActions={[
-        { content: "Edit", onAction: () => setEditModalOpen(true) },
+        { content: "Edit", onAction: () => setEditModalOpen(true), disabled: !canEditOrder },
         { content: "Print Invoice", onAction: () => window.open(`/api/custom-invoice/${order.id}`, '_blank'), disabled: !invoice },
         ...(order.paymentStatus !== "FULLY PAID" ? [{ content: "Add Payment", onAction: () => setAddPaymentOpen(true) }] : []),
         { content: "Delete", destructive: true, onAction: () => setDeleteModalOpen(true) }
@@ -395,6 +443,15 @@ export default function CustomOrderDetail() {
       <Layout>
         <Layout.Section>
           <BlockStack gap="400">
+            {hasParcels && (
+              <Banner tone={hasDispatchedParcel ? "warning" : "info"}>
+                <p>
+                  {hasDispatchedParcel
+                    ? "This order can no longer be edited because it has a dispatched parcel. Dispatched parcels cannot be deleted, so this order is locked."
+                    : "This order cannot be edited while it has parcels attached. Delete all parcels below to make the order editable again."}
+                </p>
+              </Banner>
+            )}
             <Card>
               <BlockStack gap="400">
                 <Text variant="headingMd" as="h2">Details</Text>
@@ -525,9 +582,16 @@ export default function CustomOrderDetail() {
                           </InlineStack>
                         )}
                         <Box paddingBlockStart="200">
-                          <Button size="micro" icon={DeliveryIcon} onClick={() => handlePrintLabel(parcel)} loading={printingParcelId === parcel.id}>
-                            Print Label
-                          </Button>
+                          <InlineStack gap="200">
+                            <Button size="micro" icon={DeliveryIcon} onClick={() => handlePrintLabel(parcel)} loading={printingParcelId === parcel.id}>
+                              Print Label
+                            </Button>
+                            {parcel.dispatchmentId === null && (
+                              <Button size="micro" icon={DeleteIcon} tone="critical" variant="plain" onClick={() => setParcelToDelete(parcel)}>
+                                Delete Parcel
+                              </Button>
+                            )}
+                          </InlineStack>
                         </Box>
                       </BlockStack>
                     </Box>
@@ -666,6 +730,26 @@ export default function CustomOrderDetail() {
       >
         <Modal.Section>
           <Text as="p">Are you sure you want to delete this custom order? This will also remove any un-dispatched parcels if configured cascade delete (though best practice is to remove parcels first).</Text>
+        </Modal.Section>
+      </Modal>
+
+      {/* Delete Parcel Confirmation Modal */}
+      <Modal
+        open={!!parcelToDelete}
+        onClose={() => setParcelToDelete(null)}
+        title="Delete Parcel"
+        primaryAction={{
+          content: "Delete",
+          destructive: true,
+          onAction: handleDeleteParcel,
+          loading: deleteParcelFetcher.state === "submitting"
+        }}
+        secondaryActions={[{ content: "Cancel", onAction: () => setParcelToDelete(null) }]}
+      >
+        <Modal.Section>
+          <Text as="p">
+            Are you sure you want to delete this parcel{parcelToDelete?.awbNumber ? ` (AWB: ${parcelToDelete.awbNumber})` : ""}? Once all parcels are deleted, this order becomes editable again.
+          </Text>
         </Modal.Section>
       </Modal>
     </Page>
